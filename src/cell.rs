@@ -1,5 +1,13 @@
-pub(crate) enum UpdateError {}
+use crate::Board;
+
+pub enum UpdateError {}
 pub(crate) enum Cell {}
+
+impl Cell {
+    pub fn to_concrete(&self, board: &Board, num: usize) -> Result<Board, UpdateError> {
+        todo!()
+    }
+}
 /// a CellList is the representation of the cells in a row/column/house
 ///
 /// a CellList provides:
@@ -42,17 +50,31 @@ where
     ///
     /// while it is assumed to be ordered in a determined manner, it may not be if cell_at is
     /// determined
+    #[inline]
     fn all_cells(&self) -> Vec<&Cell> {
         todo!()
     }
     /// gets all cells that meet predicate (including concrete)
+    #[inline]
     fn cells_that(&self, predicate: impl FnOnce(&Cell) -> bool) -> CellSet {
         todo!()
     }
     /// get all cells which could be the specified number
     ///
     /// *passing a number greater than 8 returns an empty set*
+    #[inline]
     fn cells_of_num(&self, num: usize) -> CellSet {
+        todo!()
+    }
+    /// if num has no concrete instance, return CellSet of cells where it is possible
+    /// if num has a concrete instance, return none
+    #[inline]
+    fn possible_cells_of_num(&self, num: usize) -> Option<CellSet> {
+        todo!()
+    }
+    /// boolean saying if list has a concrete version of the number
+    #[inline]
+    fn has_concrete(&self, num: usize) -> bool {
         todo!()
     }
 
@@ -87,3 +109,13 @@ fn valid_cell_list<C: CellList>(cell_list: &C) -> Result<C, UpdateError> {
 
 /// An unordered set of cells used for updating
 pub(crate) struct CellSet;
+
+impl IntoIterator for CellSet {
+    type Item = Cell;
+    // may change, this is the placeholder for now
+    type IntoIter = <Vec<Cell> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        todo!()
+    }
+}
