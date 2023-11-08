@@ -1,10 +1,24 @@
+use std::collections::HashSet;
+
 use crate::Board;
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum UpdateError {}
-pub(crate) enum Cell {}
 
-impl Cell {
-    pub fn to_concrete(&self, board: &Board, num: usize) -> Result<Board, UpdateError> {
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub(crate) enum Cell {
+    Concrete(usize),
+    Possibities(HashSet<usize>),
+}
+
+pub(crate) struct CellRef<'b> {
+    pub row: usize,
+    pub column: usize,
+    pub board: &'b Board,
+}
+
+impl<'b> CellRef<'b> {
+    pub fn to_concrete(&self, num: usize) -> Result<Board, UpdateError> {
         todo!()
     }
 }
@@ -38,11 +52,7 @@ where
     /// provide some way to order the cells
     ///
     /// 0 indexed access of cell
-    fn cell_at(&self, index: usize) -> &Cell;
-    // /// provide a way to get a mutable cell
-    // ///
-    // /// cell_at(n) & mut_cell_at(n) should both return the same cell
-    // fn mut_cell_at(&mut self, index: usize) -> &mut Cell;
+    fn cell_at(&self, index: usize) -> CellRef;
 
     // -- queries --
 
@@ -51,12 +61,12 @@ where
     /// while it is assumed to be ordered in a determined manner, it may not be if cell_at is
     /// determined
     #[inline]
-    fn all_cells(&self) -> Vec<&Cell> {
+    fn all_cells(&self) -> Vec<CellRef> {
         todo!()
     }
     /// gets all cells that meet predicate (including concrete)
     #[inline]
-    fn cells_that(&self, predicate: impl FnOnce(&Cell) -> bool) -> CellSet {
+    fn cells_that(&self, predicate: impl FnOnce(CellRef) -> bool) -> CellSet {
         todo!()
     }
     /// get all cells which could be the specified number
@@ -108,14 +118,14 @@ fn valid_cell_list<C: CellList>(cell_list: &C) -> Result<C, UpdateError> {
 }
 
 /// An unordered set of cells used for updating
-pub(crate) struct CellSet;
+pub(crate) struct CellSet<'b>(HashSet<CellRef<'b>>);
 
-impl IntoIterator for CellSet {
-    type Item = Cell;
+impl<'b> IntoIterator for CellSet<'b> {
+    type Item = CellRef<'b>;
     // may change, this is the placeholder for now
-    type IntoIter = <Vec<Cell> as IntoIterator>::IntoIter;
+    type IntoIter = <HashSet<CellRef<'b>> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        todo!()
+        self.0.into_iter()
     }
 }
