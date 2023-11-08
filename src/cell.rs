@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, ops::Deref};
 
 use crate::Board;
 
@@ -22,6 +22,14 @@ impl<'b> CellRef<'b> {
         todo!()
     }
 }
+impl<'b> Deref for CellRef<'b> {
+    type Target = Cell;
+
+    fn deref(&self) -> &Self::Target {
+        &self.board[self.row][self.column]
+    }
+}
+
 /// a CellList is the representation of the cells in a row/column/house
 ///
 /// a CellList provides:
