@@ -122,7 +122,7 @@ impl<'b> CellRef<'b> {
 /// - ways to update the cell values while maintaining certain rules
 /// - ways to query the CellList
 ///
-/// ## Queries
+/// ##Queries
 ///
 /// different queries provide different ways of looking at the information in the cellList.
 ///

@@ -28,6 +28,13 @@ impl Index {
 /// the internal representation of the board is not determined for sure yet
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Board([[Cell; 9]; 9]);
+#[derive(Debug, PartialEq, Eq, Clone, Copy, serde::Serialize)]
+pub struct SerialiazableBoard([[Option<usize>; 9]; 9]);
+impl From<Board> for SerialiazableBoard {
+    fn from(value: Board) -> Self {
+        todo!()
+    }
+}
 
 impl Default for Board {
     fn default() -> Self {
@@ -184,6 +191,9 @@ cell_list!(House(house, houses) {
 });
 
 impl Board {
+    pub fn build(lines: Vec<Vec<Option<u8>>>) -> Result<Self, String> {
+        todo!()
+    }
     pub(crate) fn cell(&self, row: Index, column: Index) -> &Cell {
         // won't fail because Index must be between 0 and 9
         &self.0[row.0][column.0]
