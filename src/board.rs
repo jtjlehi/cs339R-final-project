@@ -160,21 +160,6 @@ impl Board {
     fn validate_helper(&self) -> BoardState {
         todo!()
     }
-    pub(crate) fn row(&self, row_index: Index) -> Row {
-        Row {
-            row_index,
-            board: self,
-        }
-    }
-    pub(crate) fn rows(&self) -> impl Iterator<Item = Row> {
-        Index::indexes().map(|row_index| self.row(row_index))
-    }
-    pub(crate) fn houses(&self) -> HashSet<House> {
-        todo!()
-    }
-    pub(crate) fn columns(&self) -> HashSet<Column> {
-        todo!()
-    }
 }
 impl<'b> IntoIterator for &'b Board {
     type Item = CellRef<'b>;
@@ -203,52 +188,88 @@ impl<'b> FromIterator<(CellRef<'b>, Cell)> for Board {
         board
     }
 }
+macro_rules! cell_list {
+    ($name:ident, $single:ident, $many:ident) => {
+        #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+        pub(crate) struct $name<'b> {
+            index: Index,
+            board: &'b Board,
+        }
 
-/// A row of a `Board`
-///
-/// each row must have one and only one instance of each number 1-9
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub(crate) struct Row<'b> {
-    row_index: Index,
-    board: &'b Board,
+        impl Hash for $name<'_> {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                self.index.hash(state);
+            }
+        }
+        impl Board {
+            pub(crate) fn $single(&self, index: Index) -> $name {
+                $name { index, board: self }
+            }
+            pub(crate) fn $many(&self) -> impl Iterator<Item = $name> {
+                Index::indexes().map(|index| self.$single(index))
+            }
+        }
+    };
 }
 
-impl Hash for Row<'_> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.row_index.hash(state);
-    }
-}
-
+cell_list!(Row, row, rows);
 impl<'b> CellList for Row<'b> {
     fn cell_at(&self, index: Index) -> CellRef {
         CellRef {
-            row: self.row_index,
+            row: self.index,
             column: index,
             board: self.board,
         }
     }
 }
 
-/// A column of a `Board`
-///
-/// each row must have one and only one instance of each number 1-9
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct Column;
-
-impl CellList for Column {
+cell_list!(Column, column, columns);
+impl<'b> CellList for Column<'b> {
     fn cell_at(&self, index: Index) -> CellRef {
-        todo!()
+        CellRef {
+            column: self.index,
+            row: index,
+            board: self.board,
+        }
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub struct House;
-
-impl CellList for House {
+cell_list!(House, house, houses);
+impl<'b> CellList for House<'b> {
+    /// houses are ordered left to right top to bottom
+    /// (so 4 is the center house)
     fn cell_at(&self, index: Index) -> CellRef {
-        todo!()
+        let house = self.index.0;
+        CellRef {
+            column: Index((house % 3) * 3 + (index.0 % 3)),
+            row: Index((house / 3) * 3 + (index.0 / 3)),
+            board: self.board,
+        }
     }
 }
 
-#[derive(Clone)]
-struct State(Option<UpdateError>, Board);
+#[cfg(test)]
+mod test {
+    use crate::cell::{CellList, CellRef};
+
+    use super::{Board, House, Index};
+
+    #[test]
+    fn house_cell_at_works() {
+        let board: Board = Default::default();
+
+        let house = House {
+            index: Index(3),
+            board: &board,
+        };
+
+        assert_eq!(
+            house.cell_at(Index(5)),
+            CellRef {
+                row: Index(4),
+                column: Index(2),
+                board: &board
+            }
+        )
+    }
+}
