@@ -14,6 +14,9 @@ pub enum UpdateError {
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct CellVal(usize);
 impl CellVal {
+    pub(crate) fn inner(&self) -> usize {
+        self.0
+    }
     /// attempts to build the given number into a cell value
     pub(crate) fn build(i: usize) -> Result<Self, UpdateError> {
         if i > 9 || i == 0 {

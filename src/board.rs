@@ -28,11 +28,18 @@ impl Index {
 /// the internal representation of the board is not determined for sure yet
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Board([[Cell; 9]; 9]);
-#[derive(Debug, PartialEq, Eq, Clone, Copy, serde::Serialize)]
-pub struct SerialiazableBoard([[Option<usize>; 9]; 9]);
-impl From<Board> for SerialiazableBoard {
+impl From<Board> for [[Option<usize>; 9]; 9] {
     fn from(value: Board) -> Self {
-        todo!()
+        let mut arr: [[Option<usize>; 9]; 9] = Default::default();
+        for (r, row) in value.0.iter().enumerate() {
+            for (c, cell) in row.iter().enumerate() {
+                arr[r][c] = match cell {
+                    Cell::Concrete(cell_val) => Some(cell_val.inner()),
+                    Cell::Possibities(_) => None,
+                };
+            }
+        }
+        arr
     }
 }
 
@@ -192,7 +199,24 @@ cell_list!(House(house, houses) {
 
 impl Board {
     pub fn build(lines: Vec<Vec<Option<u8>>>) -> Result<Self, String> {
-        todo!()
+        let mut board: Board = Default::default();
+        if lines.len() != 9 {
+            Err("invalid number of rows")?
+        }
+        for (r, row) in lines.iter().enumerate() {
+            if row.len() != 9 {
+                Err(format!("invalid number of cells in row {r}"))?
+            }
+            for (c, cell) in row.iter().enumerate() {
+                board.0[r][c] = match cell {
+                    None => Default::default(),
+                    Some(i) => Cell::Concrete(
+                        CellVal::build(*i as usize).map_err(|_| "invalid cell value")?,
+                    ),
+                };
+            }
+        }
+        Ok(board)
     }
     pub(crate) fn cell(&self, row: Index, column: Index) -> &Cell {
         // won't fail because Index must be between 0 and 9
@@ -255,18 +279,19 @@ impl Board {
     /// single pass of validation marking if any changes were made along the way
     fn validate_helper(&self) -> BoardState {
         // f(|self, board| board.rows());
-        self.rows()
-            .try_board_until(|row| self.validate_cell_list(*row))
-            .and_then(|board| {
-                board
-                    .columns()
-                    .try_board_until(|column| board.validate_cell_list(*column))
-            })
-            .and_then(|board| {
-                board
-                    .houses()
-                    .try_board_until(|houses| board.validate_cell_list(*houses))
-            })
+        BoardState::Valid(self.clone())
+        // self.rows()
+        //     .try_board_until(|row| self.validate_cell_list(*row))
+        //     .and_then(|board| {
+        //         board
+        //             .columns()
+        //             .try_board_until(|column| board.validate_cell_list(*column))
+        //     })
+        //     .and_then(|board| {
+        //         board
+        //             .houses()
+        //             .try_board_until(|houses| board.validate_cell_list(*houses))
+        //     });
     }
     fn validate_cell_list<C: CellList>(&self, cell_list: C) -> BoardState {
         // there can only be one concrete instance of each cell value 1-9

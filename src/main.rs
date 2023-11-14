@@ -1,4 +1,4 @@
-use final_project::{Board, BoardState, SerialiazableBoard, UpdateError};
+use final_project::{Board, BoardState, UpdateError};
 use std::{env, error::Error, fs, process};
 
 fn main() {
@@ -12,7 +12,7 @@ fn main() {
         }
     }
 }
-fn solve(lines: Vec<Vec<Option<u8>>>) -> Result<SerialiazableBoard, Box<dyn Error>> {
+fn solve(lines: Vec<Vec<Option<u8>>>) -> Result<[[Option<usize>; 9]; 9], Box<dyn Error>> {
     Ok(match Board::build(lines)?.solve() {
         BoardState::Finished(board) => board.into(),
         BoardState::Err(why) => Err(match why {
@@ -26,14 +26,16 @@ fn solve(lines: Vec<Vec<Option<u8>>>) -> Result<SerialiazableBoard, Box<dyn Erro
         _ => Err("didn't finish")?,
     })
 }
-fn write_file(board: SerialiazableBoard) -> Result<(), Box<dyn Error>> {
+fn write_file(board: [[Option<usize>; 9]; 9]) -> Result<(), Box<dyn Error>> {
     let file = fs::OpenOptions::new()
         .write(true)
         .truncate(true)
         .create(true)
         .open("out.csv")?;
     let mut writer = csv::Writer::from_writer(file);
-    writer.serialize(board)?;
+    for line in board {
+        writer.serialize(line)?;
+    }
     writer.flush()?;
     Ok(())
 }
