@@ -1,18 +1,16 @@
-use crate::cell::{Cell, CellList, CellVal, UpdateError};
-use im::HashSet;
+use crate::cell::{Cell, CellList, CellRef, CellVal, UpdateError};
 use std::{
     hash::Hash,
-    iter::{once, repeat, successors},
+    iter::{repeat, successors},
     ops::ControlFlow,
 };
 
-use crate::cell::CellRef;
-
-/// An Index of a board/row/column
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub(crate) struct Index(usize);
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub(crate) struct InvalidIndex;
+
+/// An Index of a board/row/column
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Default)]
+pub(crate) struct Index(usize);
 impl Index {
     pub(crate) fn build(i: usize) -> Result<Self, InvalidIndex> {
         if i >= 9 {
@@ -21,7 +19,7 @@ impl Index {
             Ok(Self(i))
         }
     }
-    pub(crate) fn indexes() -> impl Iterator<Item = Self> {
+    fn indexes() -> impl Iterator<Item = Self> {
         (0..).map_while(|i| Self::build(i).ok())
     }
 }
@@ -39,8 +37,6 @@ impl Default for Board {
         Board(board_vec.try_into().unwrap())
     }
 }
-
-type Solution = Result<Board, UpdateError>;
 
 type ControlSolution = ControlFlow<Board, Result<Board, UpdateError>>;
 
@@ -78,8 +74,17 @@ impl BoardState {
             Self::Err(_) | Self::PartiallyValid(_) => None,
         }
     }
+    fn and_then(&self, f: impl FnOnce(&Board) -> Self) -> Self {
+        match self {
+            BoardState::Valid(board) | BoardState::PartiallyValid(board) => f(board),
+            // for errors and finished, pass it on
+            state => state.clone(),
+        }
+    }
 }
 
+/// an Iterator method to express the concept of continually trying the method with each element
+/// until a good value is returned
 trait TryUntil: Iterator
 where
     Self: Sized,
@@ -96,6 +101,87 @@ where
 }
 
 impl<T, I: Iterator<Item = T>> TryUntil for I {}
+
+impl<'b> IntoIterator for &'b Board {
+    type Item = CellRef<'b>;
+
+    type IntoIter = <Vec<CellRef<'b>> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.rows()
+            .flat_map(|row| row.all_cells())
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+}
+impl<'b> FromIterator<(CellRef<'b>, Cell)> for Board {
+    fn from_iter<T: IntoIterator<Item = (CellRef<'b>, Cell)>>(iter: T) -> Self {
+        let mut board: Board = Default::default();
+        for (CellRef { row, column, .. }, cell) in iter {
+            *board.mut_cell(row, column) = cell;
+        }
+        board
+    }
+}
+
+macro_rules! cell_list {
+    ($name:ident($single:ident, $many:ident) {$cell_at:item}) => {
+        #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+        pub(crate) struct $name<'b> {
+            index: Index,
+            board: &'b Board,
+        }
+        impl Hash for $name<'_> {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                self.index.hash(state);
+            }
+        }
+        impl<'b> CellList for $name<'b> {
+            $cell_at
+        }
+        impl Board {
+            fn $single(&self, index: Index) -> $name {
+                $name { index, board: self }
+            }
+            fn $many(&self) -> impl Iterator<Item = $name> {
+                Index::indexes().map(|index| self.$single(index))
+            }
+        }
+    };
+}
+
+cell_list!(Row(row, rows) {
+    fn cell_at(&self, index: Index) -> CellRef {
+        CellRef {
+            row: self.index,
+            column: index,
+            board: self.board,
+        }
+    }
+});
+
+cell_list!(Column(column, columns) {
+    fn cell_at(&self, index: Index) -> CellRef {
+        CellRef {
+            column: self.index,
+            row: index,
+            board: self.board,
+        }
+    }
+});
+
+cell_list!(House(house, houses) {
+    /// houses are ordered left to right top to bottom
+    /// (so 4 is the center house)
+    fn cell_at(&self, index: Index) -> CellRef {
+        let house = self.index.0;
+        CellRef {
+            column: Index((house % 3) * 3 + (index.0 % 3)),
+            row: Index((house / 3) * 3 + (index.0 / 3)),
+            board: self.board,
+        }
+    }
+});
 
 impl Board {
     pub(crate) fn cell(&self, row: Index, column: Index) -> &Cell {
@@ -158,93 +244,30 @@ impl Board {
     }
     /// single pass of validation marking if any changes were made along the way
     fn validate_helper(&self) -> BoardState {
-        todo!()
-    }
-}
-impl<'b> IntoIterator for &'b Board {
-    type Item = CellRef<'b>;
-
-    type IntoIter = <Vec<CellRef<'b>> as IntoIterator>::IntoIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        Index::indexes()
-            .flat_map(|row| {
-                Index::indexes().map(move |column| CellRef {
-                    row,
-                    column,
-                    board: self,
-                })
+        // f(|self, board| board.rows());
+        self.rows()
+            .try_board_until(|row| self.validate_cell_list(*row))
+            .and_then(|board| {
+                board
+                    .columns()
+                    .try_board_until(|column| board.validate_cell_list(*column))
             })
-            .collect::<Vec<_>>()
-            .into_iter()
+            .and_then(|board| {
+                board
+                    .houses()
+                    .try_board_until(|houses| board.validate_cell_list(*houses))
+            })
     }
-}
-impl<'b> FromIterator<(CellRef<'b>, Cell)> for Board {
-    fn from_iter<T: IntoIterator<Item = (CellRef<'b>, Cell)>>(iter: T) -> Self {
-        let mut board: Board = Default::default();
-        for (CellRef { row, column, .. }, cell) in iter {
-            *board.mut_cell(row, column) = cell;
-        }
-        board
-    }
-}
-macro_rules! cell_list {
-    ($name:ident, $single:ident, $many:ident) => {
-        #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-        pub(crate) struct $name<'b> {
-            index: Index,
-            board: &'b Board,
-        }
-
-        impl Hash for $name<'_> {
-            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                self.index.hash(state);
-            }
-        }
-        impl Board {
-            pub(crate) fn $single(&self, index: Index) -> $name {
-                $name { index, board: self }
-            }
-            pub(crate) fn $many(&self) -> impl Iterator<Item = $name> {
-                Index::indexes().map(|index| self.$single(index))
-            }
-        }
-    };
-}
-
-cell_list!(Row, row, rows);
-impl<'b> CellList for Row<'b> {
-    fn cell_at(&self, index: Index) -> CellRef {
-        CellRef {
-            row: self.index,
-            column: index,
-            board: self.board,
-        }
-    }
-}
-
-cell_list!(Column, column, columns);
-impl<'b> CellList for Column<'b> {
-    fn cell_at(&self, index: Index) -> CellRef {
-        CellRef {
-            column: self.index,
-            row: index,
-            board: self.board,
-        }
-    }
-}
-
-cell_list!(House, house, houses);
-impl<'b> CellList for House<'b> {
-    /// houses are ordered left to right top to bottom
-    /// (so 4 is the center house)
-    fn cell_at(&self, index: Index) -> CellRef {
-        let house = self.index.0;
-        CellRef {
-            column: Index((house % 3) * 3 + (index.0 % 3)),
-            row: Index((house / 3) * 3 + (index.0 / 3)),
-            board: self.board,
-        }
+    fn validate_cell_list<C: CellList>(&self, cell_list: C) -> BoardState {
+        // there can only be one concrete instance of each cell value 1-9
+        // cell_list
+        // for each value:
+        //  - if it can only exist in one cell, that cell has that concrete value
+        //  - it must be able to exist
+        // for each cell
+        //  - if it can only have one value, it has that value
+        //  - it must be able to exist
+        todo!()
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::board::{Board, BoardState, Index};
 use im::{hashset, HashSet};
-use std::{hash::Hash, ops::Deref};
+use std::{default, hash::Hash, ops::Deref};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum UpdateError {
@@ -148,14 +148,12 @@ where
     /// 0 indexed access of cell
     fn cell_at(&self, index: Index) -> CellRef;
 
-    // -- queries --
-
     /// a list of all the cells in order specified by `cell_at`
     ///
     /// while it is assumed to be ordered in a determined manner, it may not be if cell_at is
     /// determined
     #[inline]
-    fn all_cells(&self) -> Vec<CellRef> {
+    fn all_cells<'b>(self) -> CellSet<'b> {
         todo!()
     }
     /// gets all cells that meet predicate (including concrete)
