@@ -1,32 +1,118 @@
-use std::{collections::HashSet, ops::Deref};
-
-use crate::Board;
+use crate::board::{Board, BoardState, Index};
+use im::{hashset, HashSet};
+use std::{hash::Hash, ops::Deref};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum UpdateError {}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub(crate) enum Cell {
-    Concrete(usize),
-    Possibities(HashSet<usize>),
+pub enum UpdateError {
+    InvalidConcrete,
+    InvalidCellVal,
+    MultipleConcrete,
+    InitError,
 }
 
-pub(crate) struct CellRef<'b> {
-    pub row: usize,
-    pub column: usize,
-    pub board: &'b Board,
-}
-
-impl<'b> CellRef<'b> {
-    pub fn to_concrete(&self, num: usize) -> Result<Board, UpdateError> {
-        todo!()
+/// a newtype CellVall representing the value a cell can be (1-9)
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct CellVal(usize);
+impl CellVal {
+    /// attempts to build the given number into a cell value
+    pub(crate) fn build(i: usize) -> Result<Self, UpdateError> {
+        if i > 9 || i == 0 {
+            Err(UpdateError::InvalidCellVal)
+        } else {
+            Ok(Self(i))
+        }
+    }
+    /// an iterator over all possible cell values
+    pub(crate) fn cell_vals() -> impl Iterator<Item = Self> {
+        (0..).map_while(|i| Self::build(i).ok())
     }
 }
+
+/// an immutable set of the possible values (`CellVal`) a Cell can be
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct PossibleCells(HashSet<CellVal>);
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Cell {
+    Concrete(CellVal),
+    Possibities(HashSet<CellVal>),
+}
+impl Default for Cell {
+    fn default() -> Self {
+        Cell::Possibities(CellVal::cell_vals().collect())
+    }
+}
+impl Cell {
+    /// make the cell concrete using the given number
+    ///
+    /// if the cell has eliminated num as an option, return InvalidConcrete error
+    fn make_concrete_cell(&self, num: CellVal) -> Result<Self, UpdateError> {
+        use Cell::*;
+        Ok(match self {
+            &Concrete(val) if val != num => Concrete(val),
+            Possibities(set) if set.contains(&num) => Concrete(num),
+            _ => Err(UpdateError::InvalidConcrete)?,
+        })
+    }
+    /// removes the possibility from the list if it is there, creating a new copy as needed
+    pub(crate) fn remove_possibility(&self, num: CellVal) -> Self {
+        use Cell::*;
+        match self {
+            Possibities(set) if set.contains(&num) => Possibities(set.without(&num)),
+            // clone should be constant time
+            Possibities(set) => Possibities(set.clone()),
+            &Concrete(val) => Concrete(val),
+        }
+    }
+}
+#[derive(Debug, Clone, Copy)]
+pub struct CellRef<'b> {
+    pub(crate) row: Index,
+    pub(crate) column: Index,
+    pub(crate) board: &'b Board,
+}
+// equality of the board doesn't matter
+impl<'b> PartialEq for CellRef<'b> {
+    fn eq(&self, other: &Self) -> bool {
+        self.row == other.row && self.column == other.column
+    }
+}
+impl<'b> Eq for CellRef<'b> {}
+impl<'b> Hash for CellRef<'b> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.row.hash(state);
+        self.column.hash(state);
+    }
+}
+
 impl<'b> Deref for CellRef<'b> {
     type Target = Cell;
 
     fn deref(&self) -> &Self::Target {
-        &self.board[self.row][self.column]
+        self.board.cell(self.row, self.column)
+    }
+}
+
+impl<'b> CellRef<'b> {
+    /// attempt to make the cell concrete, updating the board as needed
+    pub(crate) fn make_concrete(self, num: CellVal) -> BoardState {
+        match self
+            .board
+            .into_iter()
+            .map(|cell_ref| {
+                let cell = if cell_ref == self {
+                    cell_ref.make_concrete_cell(num)?
+                } else if cell_ref.row == self.row || cell_ref.column == self.column {
+                    cell_ref.remove_possibility(num)
+                } else {
+                    (*cell_ref).clone()
+                };
+                Ok((cell_ref, cell))
+            })
+            .collect::<Result<Board, _>>()
+        {
+            Ok(board) => BoardState::Valid(board),
+            Err(why) => BoardState::Err(why),
+        }
     }
 }
 
@@ -60,7 +146,7 @@ where
     /// provide some way to order the cells
     ///
     /// 0 indexed access of cell
-    fn cell_at(&self, index: usize) -> CellRef;
+    fn cell_at(&self, index: Index) -> CellRef;
 
     // -- queries --
 
@@ -78,21 +164,19 @@ where
         todo!()
     }
     /// get all cells which could be the specified number
-    ///
-    /// *passing a number greater than 8 returns an empty set*
     #[inline]
-    fn cells_of_num(&self, num: usize) -> CellSet {
+    fn cells_of_num(&self, num: CellVal) -> CellSet {
         todo!()
     }
     /// if num has no concrete instance, return CellSet of cells where it is possible
     /// if num has a concrete instance, return none
     #[inline]
-    fn possible_cells_of_num(&self, num: usize) -> Option<CellSet> {
+    fn possible_cells_of_num<'b>(self, num: CellVal) -> Option<CellSet<'b>> {
         todo!()
     }
     /// boolean saying if list has a concrete version of the number
     #[inline]
-    fn has_concrete(&self, num: usize) -> bool {
+    fn has_concrete(&self, num: Index) -> bool {
         todo!()
     }
 
@@ -109,29 +193,26 @@ where
     // -- updates --
 
     /// update cell at index so choice is not an option
-    fn remove_cell_choice(&self, index: usize, choice: usize) -> Result<Self, UpdateError> {
+    fn remove_cell_choice(&self, index: Index, choice: CellVal) -> Result<Self, UpdateError> {
         todo!()
     }
 
     /// update cell to be the concrete value
-    fn choose_cell(&self, index: usize, choice: usize) -> Result<Self, UpdateError> {
+    fn choose_cell(&self, index: Index, choice: CellVal) -> Result<Self, UpdateError> {
+        todo!()
+    }
+    /// check to make sure the cell_list is valid
+    fn valid_cell_list(&self) -> Result<Self, UpdateError> {
         todo!()
     }
 }
-/// helper function used by CellList functions to verify it is in a valid state
-///
-/// also updates cell list (if possible) so some of the rules which can be true, are
-fn valid_cell_list<C: CellList>(cell_list: &C) -> Result<C, UpdateError> {
-    todo!()
-}
-
 /// An unordered set of cells used for updating
-pub(crate) struct CellSet<'b>(HashSet<CellRef<'b>>);
+pub struct CellSet<'b>(pub(crate) HashSet<CellRef<'b>>);
 
 impl<'b> IntoIterator for CellSet<'b> {
     type Item = CellRef<'b>;
     // may change, this is the placeholder for now
-    type IntoIter = <HashSet<CellRef<'b>> as IntoIterator>::IntoIter;
+    type IntoIter = im::hashset::ConsumingIter<CellRef<'b>>; // <HashSet<CellRef<'b>> as IntoIterator>::IntoIter
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
