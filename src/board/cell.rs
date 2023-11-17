@@ -1,35 +1,8 @@
-use crate::board::{Board, BoardState, Index};
-use im::{hashset, HashSet};
-use std::{default, hash::Hash, ops::Deref};
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
-pub enum UpdateError {
-    InvalidConcrete,
-    InvalidCellVal,
-    MultipleConcrete,
-    InitError,
-}
-
-/// a newtype CellVall representing the value a cell can be (1-9)
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
-pub struct CellVal(usize);
-impl CellVal {
-    pub(crate) fn inner(&self) -> usize {
-        self.0
-    }
-    /// attempts to build the given number into a cell value
-    pub(crate) fn build(i: usize) -> Result<Self, UpdateError> {
-        if i > 9 || i == 0 {
-            Err(UpdateError::InvalidCellVal)
-        } else {
-            Ok(Self(i))
-        }
-    }
-    /// an iterator over all possible cell values
-    pub(crate) fn cell_vals() -> impl Iterator<Item = Self> {
-        (0..).map_while(|i| Self::build(i).ok())
-    }
-}
+use crate::board::Board;
+use crate::new_types::{CellVal, Index};
+use crate::UpdateError;
+use im::HashSet;
+use std::{hash::Hash, ops::Deref};
 
 /// an immutable set of the possible values (`CellVal`) a Cell can be
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -48,7 +21,7 @@ impl Cell {
     /// make the cell concrete using the given number
     ///
     /// if the cell has eliminated num as an option, return InvalidConcrete error
-    fn make_concrete_cell(&self, num: CellVal) -> Result<Self, UpdateError> {
+    pub(crate) fn make_concrete_cell(&self, num: CellVal) -> Result<Self, UpdateError> {
         use Cell::*;
         Ok(match self {
             &Concrete(val) if val != num => Concrete(val),
@@ -69,9 +42,9 @@ impl Cell {
 }
 #[derive(Debug, Clone, Copy)]
 pub struct CellRef<'b> {
-    pub(crate) row: Index,
-    pub(crate) column: Index,
-    pub(crate) board: &'b Board,
+    row: Index,
+    column: Index,
+    board: &'b Board,
 }
 // equality of the board doesn't matter
 impl<'b> PartialEq for CellRef<'b> {
@@ -86,7 +59,6 @@ impl<'b> Hash for CellRef<'b> {
         self.column.hash(state);
     }
 }
-
 impl<'b> Deref for CellRef<'b> {
     type Target = Cell;
 
@@ -94,12 +66,41 @@ impl<'b> Deref for CellRef<'b> {
         self.board.cell(self.row, self.column)
     }
 }
+impl<'b> FromIterator<(CellRef<'b>, Cell)> for Board {
+    fn from_iter<T: IntoIterator<Item = (CellRef<'b>, Cell)>>(iter: T) -> Self {
+        let mut board: Board = Default::default();
+        for (CellRef { row, column, .. }, cell) in iter {
+            *board.mut_cell(row, column) = cell;
+        }
+        board
+    }
+}
+impl<'b> IntoIterator for &'b Board {
+    type Item = CellRef<'b>;
 
+    type IntoIter = <Vec<CellRef<'b>> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.rows()
+            .flat_map(|row| row.all_cells())
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+}
+// |cell_ref| {
+//                 let cell = if cell_ref == self {
+//                     cell_ref.make_concrete_cell(num)?
+//                 } else if cell_ref.row == self.row || cell_ref.column == self.column {
+//                     cell_ref.remove_possibility(num)
+//                 } else {
+//                     (*cell_ref).clone()
+//                 };
+//                 Ok((cell_ref, cell))
+//             }
 impl<'b> CellRef<'b> {
     /// attempt to make the cell concrete, updating the board as needed
-    pub(crate) fn make_concrete(self, num: CellVal) -> BoardState {
-        match self
-            .board
+    pub(crate) fn make_concrete(self, num: CellVal) -> Result<Board, UpdateError> {
+        self.board
             .into_iter()
             .map(|cell_ref| {
                 let cell = if cell_ref == self {
@@ -111,11 +112,7 @@ impl<'b> CellRef<'b> {
                 };
                 Ok((cell_ref, cell))
             })
-            .collect::<Result<Board, _>>()
-        {
-            Ok(board) => BoardState::Valid(board),
-            Err(why) => BoardState::Err(why),
-        }
+            .collect()
     }
 }
 
@@ -149,7 +146,7 @@ where
     /// provide some way to order the cells
     ///
     /// 0 indexed access of cell
-    fn cell_at(&self, index: Index) -> CellRef;
+    fn cell_at(&self, index: Index) -> Result<CellRef, UpdateError>;
 
     /// a list of all the cells in order specified by `cell_at`
     ///
@@ -207,8 +204,68 @@ where
         todo!()
     }
 }
+macro_rules! cell_list {
+    ($name:ident($single:ident, $many:ident) {$cell_at:item}) => {
+        #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+        pub(crate) struct $name<'b> {
+            index: Index,
+            board: &'b Board,
+        }
+        impl Hash for $name<'_> {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                self.index.hash(state);
+            }
+        }
+        impl<'b> CellList for $name<'b> {
+            $cell_at
+        }
+        impl Board {
+            pub(crate) fn $single(&self, index: Index) -> $name {
+                $name { index, board: self }
+            }
+            pub(crate) fn $many(&self) -> impl Iterator<Item = $name> {
+                Index::indexes().map(|index| self.$single(index))
+            }
+        }
+    };
+}
+
+cell_list!(Row(row, rows) {
+    fn cell_at(&self, index: Index) -> Result<CellRef, UpdateError> {
+        Ok(CellRef {
+            row: self.index,
+            column: index,
+            board: self.board,
+        })
+    }
+});
+
+cell_list!(Column(column, columns) {
+    fn cell_at(&self, index: Index) -> Result<CellRef, UpdateError> {
+        Ok(CellRef {
+            column: self.index,
+            row: index,
+            board: self.board,
+        })
+    }
+});
+
+cell_list!(House(house, houses) {
+    /// houses are ordered left to right top to bottom
+    /// (so 4 is the center house)
+    fn cell_at(&self, index: Index) -> Result<CellRef, UpdateError> {
+        let house = self.index.inner();
+        let i = self.index.inner();
+        Ok(CellRef {
+            column: Index::build((house % 3) * 3 + (i % 3))?,
+            row: Index::build((house / 3) * 3 + (i/ 3))?,
+            board: self.board,
+        })
+    }
+});
+
 /// An unordered set of cells used for updating
-pub struct CellSet<'b>(pub(crate) HashSet<CellRef<'b>>);
+pub(crate) struct CellSet<'b>(pub(crate) HashSet<CellRef<'b>>);
 
 impl<'b> IntoIterator for CellSet<'b> {
     type Item = CellRef<'b>;
@@ -217,5 +274,32 @@ impl<'b> IntoIterator for CellSet<'b> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::board::cell::House;
+    use crate::new_types::Index;
+
+    use super::{Board, CellList, CellRef};
+
+    #[test]
+    fn house_cell_at_works() {
+        let board: Board = Default::default();
+
+        let house = House {
+            index: Index::build(3).unwrap(),
+            board: &board,
+        };
+
+        assert_eq!(
+            house.cell_at(Index::build(5).unwrap()),
+            Ok(CellRef {
+                row: Index::build(4).unwrap(),
+                column: Index::build(2).unwrap(),
+                board: &board
+            })
+        )
     }
 }

@@ -22,6 +22,7 @@ fn solve(lines: Vec<Vec<Option<u8>>>) -> Result<[[Option<usize>; 9]; 9], Box<dyn
                 "tried to set a concrete value where there already was one"
             }
             UpdateError::InitError => "we didn't get past take off",
+            UpdateError::InvalidIndex => "trying to create an invalid index",
         })?,
         _ => Err("didn't finish")?,
     })
