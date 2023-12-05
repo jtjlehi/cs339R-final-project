@@ -103,7 +103,7 @@ impl<'b> IntoIterator for &'b Board {
 
     fn into_iter(self) -> Self::IntoIter {
         self.rows()
-            .flat_map(|row| row.all_cells())
+            .flat_map(|row| row.all_cells(self))
             .collect::<Vec<_>>()
             .into_iter()
     }
@@ -147,6 +147,44 @@ impl<'b> IntoIterator for CellSet<'b> {
         }
     }
 }
+impl<'b> CellSet<'b> {
+    /// get all cells which could be the specified number
+    #[inline]
+    pub(crate) fn cells_of_num(self, _num: CellVal) -> CellSet<'b> {
+        todo!()
+    }
+    /// boolean saying if list has a concrete version of the number
+    #[inline]
+    pub(crate) fn has_concrete(&self, _num: Index) -> bool {
+        todo!()
+    }
+
+    /// gives all cells that are in both cell_lists
+    pub(crate) fn intersect<C: CellList<'b>>(&self, _other: &C) -> CellSet {
+        todo!()
+    }
+
+    /// gives cells that are in self but not the other cellList
+    pub(crate) fn difference<C: CellList<'b>>(&self, _other: &C) -> CellSet {
+        todo!()
+    }
+
+    // -- updates --
+
+    /// update cell at index so choice is not an option
+    pub(crate) fn remove_cell_choice(&self, _index: Index, _choice: CellVal) -> Result<Self> {
+        todo!()
+    }
+
+    /// update cell to be the concrete value
+    pub(crate) fn choose_cell(&self, _index: Index, _choice: CellVal) -> Result<Self> {
+        todo!()
+    }
+    /// check to make sure the cell_list is valid
+    pub(crate) fn valid_cell_list(&self) -> Result<Self> {
+        todo!()
+    }
+}
 
 pub(crate) struct CellIter<'b> {
     board: &'b Board,
@@ -163,6 +201,22 @@ impl<'b> Iterator for CellIter<'b> {
     }
 }
 
+impl Board {
+    /// get all of the cells on the board that could possibly be the indicated value
+    ///
+    /// skip the concrete values
+    pub(crate) fn possible_cells_of_num(&self, num: CellVal) -> impl Iterator<Item = CellRef> {
+        Index::indexes()
+            .flat_map(|row| Index::indexes().map(move |column| CellPos { row, column }))
+            .filter_map(move |pos| {
+                let cell_ref = CellRef { pos, board: self };
+                match *cell_ref {
+                    Cell::Possibities(ref set) if set.contains(&num) => Some(cell_ref),
+                    _ => None,
+                }
+            })
+    }
+}
 /// a CellList is the representation of the cells in a row/column/house
 ///
 /// a CellList provides:
@@ -188,7 +242,7 @@ impl<'b> Iterator for CellIter<'b> {
 /// rules are still satisfied at the end of the update.
 pub(crate) trait CellList<'b>
 where
-    Self: Sized + Clone,
+    Self: Sized + Copy,
 {
     /// provide some way to order the cells
     ///
@@ -200,50 +254,11 @@ where
     /// while it is assumed to be ordered in a determined manner, it may not be if cell_at is
     /// determined
     #[inline]
-    fn all_cells(self) -> CellSet<'b> {
-        todo!()
-    }
-    /// get all cells which could be the specified number
-    #[inline]
-    fn cells_of_num(self, _num: CellVal) -> CellSet<'b> {
-        todo!()
-    }
-    /// if num has no concrete instance, return CellSet of cells where it is possible
-    /// if num has a concrete instance, return none
-    #[inline]
-    fn possible_cells_of_num(self, _num: CellVal) -> Option<CellSet<'b>> {
-        todo!()
-    }
-    /// boolean saying if list has a concrete version of the number
-    #[inline]
-    fn has_concrete(&self, _num: Index) -> bool {
-        todo!()
-    }
-
-    /// gives all cells that are in both cell_lists
-    fn intersect<C: CellList<'b>>(&self, _other: &C) -> CellSet {
-        todo!()
-    }
-
-    /// gives cells that are in self but not the other cellList
-    fn difference<C: CellList<'b>>(&self, _other: &C) -> CellSet {
-        todo!()
-    }
-
-    // -- updates --
-
-    /// update cell at index so choice is not an option
-    fn remove_cell_choice(&self, _index: Index, _choice: CellVal) -> Result<Self> {
-        todo!()
-    }
-
-    /// update cell to be the concrete value
-    fn choose_cell(&self, _index: Index, _choice: CellVal) -> Result<Self> {
-        todo!()
-    }
-    /// check to make sure the cell_list is valid
-    fn valid_cell_list(&self) -> Result<Self> {
-        todo!()
+    fn all_cells(self, board: &Board) -> CellSet {
+        CellSet {
+            set: Index::indexes().map(|i| self.cell_at(i)).collect(),
+            board,
+        }
     }
 }
 macro_rules! cell_list {

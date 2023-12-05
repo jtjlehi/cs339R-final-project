@@ -10,7 +10,7 @@ impl Board {
     /// Attempt to solve the given board
     ///
     /// we don't mutate the Board so we don't have to implement our own stack for backtracking
-    pub fn solve(&self) -> BoardState {
+    pub fn solve(self) -> BoardState {
         // make sure the board is valid before starting
         // if it isn't, we return early
         match self.validate() {
@@ -18,10 +18,7 @@ impl Board {
                 // temp variable created to satisfy the borrow checker
                 let mut possible = CellVal::cell_vals().flat_map(|num| {
                     board
-                        .rows()
-                        .filter_map(move |row| row.possible_cells_of_num(num))
-                        // we are testing each cell as value -> the row doesn't matter -> flattening is OK
-                        .flat_map(|cell_set| cell_set.into_iter())
+                        .possible_cells_of_num(num)
                         // if making concrete fails, don't use the board
                         .filter_map(move |cell| cell.make_concrete(num).ok())
                 });
@@ -41,7 +38,7 @@ impl Board {
     ///   - for each cell
     ///     - if it can only have one value, it has that value
     ///     - it must be able to exist
-    pub(crate) fn validate(&self) -> BoardState {
+    pub(crate) fn validate(self) -> BoardState {
         use BoardState::PartiallyValid;
         let init = Some(PartiallyValid(self.clone()));
         // loop through until it becomes valid, finished, or an error
@@ -49,21 +46,21 @@ impl Board {
             PartiallyValid(board) => Some(board.validate_helper()),
             board_state => Some(board_state.clone()),
         })
-        .try_board_until(|board_state| board_state.clone())
+        .try_board_until(|board_state| board_state)
     }
     /// single pass of validation marking if any changes were made along the way
     fn validate_helper(&self) -> BoardState {
         self.rows()
-            .try_board_until(|row| self.validate_cell_list(*row))
+            .try_board_until(|row| self.validate_cell_list(row))
             .and_then(|board| {
                 board
                     .columns()
-                    .try_board_until(|column| board.validate_cell_list(*column))
+                    .try_board_until(|column| board.validate_cell_list(column))
             })
             .and_then(|board| {
                 board
                     .houses()
-                    .try_board_until(|houses| board.validate_cell_list(*houses))
+                    .try_board_until(|houses| board.validate_cell_list(houses))
             })
     }
     fn validate_cell_list<'b, C: CellList<'b>>(&'b self, cell_list: C) -> BoardState {
@@ -78,6 +75,7 @@ impl Board {
         todo!()
     }
 }
+
 #[derive(Clone)]
 pub enum BoardState {
     Finished(Board),
@@ -135,9 +133,9 @@ where
     ///
     /// returns the default if none of them work
     #[inline]
-    fn try_board_until(&mut self, f: impl Fn(&Self::Item) -> BoardState) -> BoardState {
+    fn try_board_until(&mut self, f: impl Fn(Self::Item) -> BoardState) -> BoardState {
         let init = Err(UpdateError::InitError);
-        self.try_fold(init, |_, x| -> ControlSolution { f(&x).into() })
+        self.try_fold(init, |_, x| -> ControlSolution { f(x).into() })
             .into()
     }
 }
