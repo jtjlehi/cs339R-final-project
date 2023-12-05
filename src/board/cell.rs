@@ -1,27 +1,50 @@
+use super::Index;
 use crate::board::Board;
-use crate::new_types::{CellVal, Index};
 use crate::UpdateError;
+use anyhow::Result;
 use im::HashSet;
+use nutype::nutype;
 use std::{hash::Hash, ops::Deref};
+
+/// An Index of a board/row/column
+#[nutype(
+    validate(less = 9),
+    derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)
+)]
+pub struct CellVal(usize);
+impl CellVal {
+    /// an iterator over all possible cell values
+    pub fn cell_vals() -> impl Iterator<Item = Self> {
+        (0..).map_while(|i| Self::new(i).ok())
+    }
+}
 
 /// an immutable set of the possible values (`CellVal`) a Cell can be
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PossibleCells(HashSet<CellVal>);
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Cell {
     Concrete(CellVal),
     Possibities(HashSet<CellVal>),
 }
+
 impl Default for Cell {
     fn default() -> Self {
         Cell::Possibities(CellVal::cell_vals().collect())
     }
 }
 impl Cell {
+    pub(super) fn new(inner: Option<u8>) -> Result<Self> {
+        Ok(match inner {
+            None => Cell::Possibities(CellVal::cell_vals().collect()),
+            Some(i) => Cell::Concrete(CellVal::new(i as usize)?),
+        })
+    }
     /// make the cell concrete using the given number
     ///
     /// if the cell has eliminated num as an option, return InvalidConcrete error
-    pub(crate) fn make_concrete_cell(&self, num: CellVal) -> Result<Self, UpdateError> {
+    fn make_concrete_cell(&self, num: CellVal) -> Result<Self> {
         use Cell::*;
         Ok(match self {
             &Concrete(val) if val != num => Concrete(val),
@@ -30,7 +53,7 @@ impl Cell {
         })
     }
     /// removes the possibility from the list if it is there, creating a new copy as needed
-    pub(crate) fn remove_possibility(&self, num: CellVal) -> Self {
+    fn remove_possibility(&self, num: CellVal) -> Self {
         use Cell::*;
         match self {
             Possibities(set) if set.contains(&num) => Possibities(set.without(&num)),
@@ -40,6 +63,7 @@ impl Cell {
         }
     }
 }
+
 #[derive(Debug, Clone, Copy)]
 pub struct CellRef<'b> {
     row: Index,
@@ -87,19 +111,9 @@ impl<'b> IntoIterator for &'b Board {
             .into_iter()
     }
 }
-// |cell_ref| {
-//                 let cell = if cell_ref == self {
-//                     cell_ref.make_concrete_cell(num)?
-//                 } else if cell_ref.row == self.row || cell_ref.column == self.column {
-//                     cell_ref.remove_possibility(num)
-//                 } else {
-//                     (*cell_ref).clone()
-//                 };
-//                 Ok((cell_ref, cell))
-//             }
 impl<'b> CellRef<'b> {
     /// attempt to make the cell concrete, updating the board as needed
-    pub(crate) fn make_concrete(self, num: CellVal) -> Result<Board, UpdateError> {
+    pub(crate) fn make_concrete(self, num: CellVal) -> Result<Board> {
         self.board
             .into_iter()
             .map(|cell_ref| {
@@ -146,7 +160,7 @@ where
     /// provide some way to order the cells
     ///
     /// 0 indexed access of cell
-    fn cell_at(&self, index: Index) -> Result<CellRef, UpdateError>;
+    fn cell_at(&self, index: Index) -> Result<CellRef>;
 
     /// a list of all the cells in order specified by `cell_at`
     ///
@@ -191,16 +205,16 @@ where
     // -- updates --
 
     /// update cell at index so choice is not an option
-    fn remove_cell_choice(&self, index: Index, choice: CellVal) -> Result<Self, UpdateError> {
+    fn remove_cell_choice(&self, index: Index, choice: CellVal) -> Result<Self> {
         todo!()
     }
 
     /// update cell to be the concrete value
-    fn choose_cell(&self, index: Index, choice: CellVal) -> Result<Self, UpdateError> {
+    fn choose_cell(&self, index: Index, choice: CellVal) -> Result<Self> {
         todo!()
     }
     /// check to make sure the cell_list is valid
-    fn valid_cell_list(&self) -> Result<Self, UpdateError> {
+    fn valid_cell_list(&self) -> Result<Self> {
         todo!()
     }
 }
@@ -231,7 +245,7 @@ macro_rules! cell_list {
 }
 
 cell_list!(Row(row, rows) {
-    fn cell_at(&self, index: Index) -> Result<CellRef, UpdateError> {
+    fn cell_at(&self, index: Index) -> Result<CellRef> {
         Ok(CellRef {
             row: self.index,
             column: index,
@@ -241,7 +255,7 @@ cell_list!(Row(row, rows) {
 });
 
 cell_list!(Column(column, columns) {
-    fn cell_at(&self, index: Index) -> Result<CellRef, UpdateError> {
+    fn cell_at(&self, index: Index) -> Result<CellRef> {
         Ok(CellRef {
             column: self.index,
             row: index,
@@ -253,12 +267,12 @@ cell_list!(Column(column, columns) {
 cell_list!(House(house, houses) {
     /// houses are ordered left to right top to bottom
     /// (so 4 is the center house)
-    fn cell_at(&self, index: Index) -> Result<CellRef, UpdateError> {
-        let house = self.index.inner();
-        let i = self.index.inner();
+    fn cell_at(&self, index: Index) -> Result<CellRef> {
+        let house = self.index.into_inner();
+        let i = self.index.into_inner();
         Ok(CellRef {
-            column: Index::build((house % 3) * 3 + (i % 3))?,
-            row: Index::build((house / 3) * 3 + (i/ 3))?,
+            column: Index::new((house % 3) * 3 + (i % 3))?,
+            row: Index::new((house / 3) * 3 + (i/ 3))?,
             board: self.board,
         })
     }
@@ -279,27 +293,25 @@ impl<'b> IntoIterator for CellSet<'b> {
 
 #[cfg(test)]
 mod test {
+    use super::{Board, CellList, CellRef, Index};
     use crate::board::cell::House;
-    use crate::new_types::Index;
-
-    use super::{Board, CellList, CellRef};
 
     #[test]
     fn house_cell_at_works() {
         let board: Board = Default::default();
 
         let house = House {
-            index: Index::build(3).unwrap(),
+            index: Index::new(3).unwrap(),
             board: &board,
         };
 
         assert_eq!(
-            house.cell_at(Index::build(5).unwrap()),
-            Ok(CellRef {
-                row: Index::build(4).unwrap(),
-                column: Index::build(2).unwrap(),
+            house.cell_at(Index::new(5).unwrap()).unwrap(),
+            CellRef {
+                row: Index::new(4).unwrap(),
+                column: Index::new(2).unwrap(),
                 board: &board
-            })
+            }
         )
     }
 }

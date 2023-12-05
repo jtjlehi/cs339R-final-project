@@ -1,4 +1,7 @@
-use crate::{board::CellList, new_types::CellVal, Board, UpdateError};
+use crate::{
+    board::{CellList, CellVal},
+    Board, UpdateError,
+};
 use std::{iter::successors, ops::ControlFlow};
 
 type ControlSolution = ControlFlow<Board, Result<Board, UpdateError>>;
@@ -12,8 +15,6 @@ impl Board {
         // if it is, we return early
         let valid_board = match self.validate() {
             BoardState::Valid(board) => board,
-            // if there is an error or it is finished, return
-            // this way errors are filtered out and such
             possible_board => return possible_board,
         };
         // temp variable created to satisfy the borrow checker
@@ -28,7 +29,7 @@ impl Board {
         });
         possible.try_board_until(Self::solve)
     }
-    /// verifies that all of the rows and columns and houses are valid
+    /// verifies that all of the rows, columns, and houses are valid
     /// ## Rules
     ///
     /// - for each row, column, and house:
@@ -41,8 +42,9 @@ impl Board {
     ///     - it must be able to exist
     pub(crate) fn validate(&self) -> BoardState {
         use BoardState::PartiallyValid;
+        let init = Some(PartiallyValid(self.clone()));
         // loop through until it becomes valid, finished, or an error
-        successors(Some(PartiallyValid(self.clone())), |board| match board {
+        successors(init, |board| match board {
             PartiallyValid(board) => Some(board.validate_helper()),
             board_state => Some(board_state.clone()),
         })
@@ -50,20 +52,18 @@ impl Board {
     }
     /// single pass of validation marking if any changes were made along the way
     fn validate_helper(&self) -> BoardState {
-        // f(|self, board| board.rows());
-        BoardState::Valid(self.clone())
-        // self.rows()
-        //     .try_board_until(|row| self.validate_cell_list(*row))
-        //     .and_then(|board| {
-        //         board
-        //             .columns()
-        //             .try_board_until(|column| board.validate_cell_list(*column))
-        //     })
-        //     .and_then(|board| {
-        //         board
-        //             .houses()
-        //             .try_board_until(|houses| board.validate_cell_list(*houses))
-        //     });
+        self.rows()
+            .try_board_until(|row| self.validate_cell_list(*row))
+            .and_then(|board| {
+                board
+                    .columns()
+                    .try_board_until(|column| board.validate_cell_list(*column))
+            })
+            .and_then(|board| {
+                board
+                    .houses()
+                    .try_board_until(|houses| board.validate_cell_list(*houses))
+            })
     }
     fn validate_cell_list<C: CellList>(&self, cell_list: C) -> BoardState {
         // there can only be one concrete instance of each cell value 1-9
@@ -105,12 +105,16 @@ impl From<ControlSolution> for BoardState {
     }
 }
 impl BoardState {
+    /// if the board is finished or valid, return it
+    ///
+    /// if not: don't
     fn ok(&self) -> Option<Board> {
         match self {
             Self::Finished(board) | Self::Valid(board) => Some(board.clone()),
             Self::Err(_) | Self::PartiallyValid(_) => None,
         }
     }
+    /// update the board using the provided function
     fn and_then(&self, f: impl FnOnce(&Board) -> Self) -> Self {
         match self {
             BoardState::Valid(board) | BoardState::PartiallyValid(board) => f(board),
@@ -138,4 +142,3 @@ where
 }
 
 impl<T, I: Iterator<Item = T>> TryUntil for I {}
-

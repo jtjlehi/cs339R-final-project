@@ -1,5 +1,6 @@
+use anyhow::Result;
 use final_project::{Board, BoardState, UpdateError};
-use std::{env, error::Error, fs, process};
+use std::{env, fs, process};
 
 fn main() {
     match read_file().and_then(solve).and_then(write_file) {
@@ -12,35 +13,29 @@ fn main() {
         }
     }
 }
-fn solve(lines: Vec<Vec<Option<u8>>>) -> Result<[[Option<usize>; 9]; 9], Box<dyn Error>> {
+fn solve(lines: Vec<Vec<Option<u8>>>) -> Result<[[Option<usize>; 9]; 9]> {
     Ok(match Board::build(lines)?.solve() {
         BoardState::Finished(board) => board.into(),
-        BoardState::Err(why) => Err(match why {
-            UpdateError::InvalidConcrete => "found an  incorrect concrete value",
-            UpdateError::InvalidCellVal => "found an invalid cell value",
-            UpdateError::MultipleConcrete => {
-                "tried to set a concrete value where there already was one"
-            }
-            UpdateError::InitError => "we didn't get past take off",
-            UpdateError::InvalidIndex => "trying to create an invalid index",
-        })?,
-        _ => Err("didn't finish")?,
+        BoardState::Err(why) => Err(why)?,
+        _ => Err(UpdateError::Incomplete)?,
     })
 }
-fn write_file(board: [[Option<usize>; 9]; 9]) -> Result<(), Box<dyn Error>> {
+fn write_file(board: [[Option<usize>; 9]; 9]) -> Result<()> {
     let file = fs::OpenOptions::new()
         .write(true)
         .truncate(true)
         .create(true)
         .open("out.csv")?;
+
     let mut writer = csv::Writer::from_writer(file);
     for line in board {
         writer.serialize(line)?;
     }
     writer.flush()?;
+
     Ok(())
 }
-fn read_file() -> Result<Vec<Vec<Option<u8>>>, Box<dyn Error>> {
+fn read_file() -> Result<Vec<Vec<Option<u8>>>> {
     let args: Vec<_> = env::args().collect();
     let file_name = &args[1];
     let file = fs::OpenOptions::new().read(true).open(file_name)?;
