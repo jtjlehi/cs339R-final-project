@@ -75,11 +75,16 @@ impl Board {
     /// get the cell at row, column
     ///
     /// used by `CellRef`s
-    fn cell(&self, row: Index, column: Index) -> &Cell {
+    fn cell(&self, CellPos { row, column }: CellPos) -> &Cell {
         // won't fail because Index must be between 0 and 9
         &self.0[row.into_inner()][column.into_inner()]
     }
-    fn mut_cell(&mut self, row: Index, column: Index) -> &mut Cell {
+    fn mut_cell(&mut self, CellPos { row, column }: CellPos) -> &mut Cell {
         &mut self.0[row.into_inner()][column.into_inner()]
     }
+}
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub(super) struct CellPos {
+    row: Index,
+    column: Index,
 }

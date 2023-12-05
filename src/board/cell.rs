@@ -1,8 +1,7 @@
-use super::Index;
-use crate::board::Board;
+use super::{Board, CellPos, Index};
 use crate::UpdateError;
 use anyhow::Result;
-use im::HashSet;
+use im::{hashset::ConsumingIter, HashSet};
 use nutype::nutype;
 use std::{hash::Hash, ops::Deref};
 
@@ -66,35 +65,33 @@ impl Cell {
 
 #[derive(Debug, Clone, Copy)]
 pub struct CellRef<'b> {
-    row: Index,
-    column: Index,
+    pos: CellPos,
     board: &'b Board,
 }
 // equality of the board doesn't matter
 impl<'b> PartialEq for CellRef<'b> {
     fn eq(&self, other: &Self) -> bool {
-        self.row == other.row && self.column == other.column
+        self.pos == other.pos
     }
 }
 impl<'b> Eq for CellRef<'b> {}
 impl<'b> Hash for CellRef<'b> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.row.hash(state);
-        self.column.hash(state);
+        self.pos.hash(state);
     }
 }
 impl<'b> Deref for CellRef<'b> {
     type Target = Cell;
 
     fn deref(&self) -> &Self::Target {
-        self.board.cell(self.row, self.column)
+        self.board.cell(self.pos)
     }
 }
 impl<'b> FromIterator<(CellRef<'b>, Cell)> for Board {
     fn from_iter<T: IntoIterator<Item = (CellRef<'b>, Cell)>>(iter: T) -> Self {
         let mut board: Board = Default::default();
-        for (CellRef { row, column, .. }, cell) in iter {
-            *board.mut_cell(row, column) = cell;
+        for (CellRef { pos, .. }, cell) in iter {
+            *board.mut_cell(pos) = cell;
         }
         board
     }
@@ -119,7 +116,8 @@ impl<'b> CellRef<'b> {
             .map(|cell_ref| {
                 let cell = if cell_ref == self {
                     cell_ref.make_concrete_cell(num)?
-                } else if cell_ref.row == self.row || cell_ref.column == self.column {
+                } else if cell_ref.pos.row == self.pos.row || cell_ref.pos.column == self.pos.column
+                {
                     cell_ref.remove_possibility(num)
                 } else {
                     (*cell_ref).clone()
@@ -127,6 +125,41 @@ impl<'b> CellRef<'b> {
                 Ok((cell_ref, cell))
             })
             .collect()
+    }
+}
+
+#[derive(Clone)]
+/// An unordered set of cells used for updating
+pub(crate) struct CellSet<'b> {
+    set: HashSet<CellPos>,
+    board: &'b Board,
+}
+
+impl<'b> IntoIterator for CellSet<'b> {
+    type Item = CellRef<'b>;
+    // may change, this is the placeholder for now
+    type IntoIter = CellIter<'b>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        CellIter {
+            iter: self.set.into_iter(),
+            board: self.board,
+        }
+    }
+}
+
+pub(crate) struct CellIter<'b> {
+    board: &'b Board,
+    iter: ConsumingIter<CellPos>,
+}
+impl<'b> Iterator for CellIter<'b> {
+    type Item = CellRef<'b>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(CellRef {
+            pos: self.iter.next()?,
+            board: self.board,
+        })
     }
 }
 
@@ -153,37 +186,32 @@ impl<'b> CellRef<'b> {
 ///
 /// All updating functions are fallible. The only way for an update to succeed is if all of the
 /// rules are still satisfied at the end of the update.
-pub(crate) trait CellList
+pub(crate) trait CellList<'b>
 where
-    Self: Sized,
+    Self: Sized + Clone,
 {
     /// provide some way to order the cells
     ///
     /// 0 indexed access of cell
-    fn cell_at(&self, index: Index) -> Result<CellRef>;
+    fn cell_at(&self, index: Index) -> CellPos;
 
     /// a list of all the cells in order specified by `cell_at`
     ///
     /// while it is assumed to be ordered in a determined manner, it may not be if cell_at is
     /// determined
     #[inline]
-    fn all_cells<'b>(self) -> CellSet<'b> {
-        todo!()
-    }
-    /// gets all cells that meet predicate (including concrete)
-    #[inline]
-    fn cells_that(&self, _predicate: impl FnOnce(CellRef) -> bool) -> CellSet {
+    fn all_cells(self) -> CellSet<'b> {
         todo!()
     }
     /// get all cells which could be the specified number
     #[inline]
-    fn cells_of_num(&self, _num: CellVal) -> CellSet {
+    fn cells_of_num(self, _num: CellVal) -> CellSet<'b> {
         todo!()
     }
     /// if num has no concrete instance, return CellSet of cells where it is possible
     /// if num has a concrete instance, return none
     #[inline]
-    fn possible_cells_of_num<'b>(self, _num: CellVal) -> Option<CellSet<'b>> {
+    fn possible_cells_of_num(self, _num: CellVal) -> Option<CellSet<'b>> {
         todo!()
     }
     /// boolean saying if list has a concrete version of the number
@@ -193,12 +221,12 @@ where
     }
 
     /// gives all cells that are in both cell_lists
-    fn intersect<C: CellList>(&self, _other: &C) -> CellSet {
+    fn intersect<C: CellList<'b>>(&self, _other: &C) -> CellSet {
         todo!()
     }
 
     /// gives cells that are in self but not the other cellList
-    fn difference<C: CellList>(&self, _other: &C) -> CellSet {
+    fn difference<C: CellList<'b>>(&self, _other: &C) -> CellSet {
         todo!()
     }
 
@@ -230,7 +258,7 @@ macro_rules! cell_list {
                 self.index.hash(state);
             }
         }
-        impl<'b> CellList for $name<'b> {
+        impl<'b> CellList<'b> for $name<'b> {
             $cell_at
         }
         impl Board {
@@ -245,55 +273,39 @@ macro_rules! cell_list {
 }
 
 cell_list!(Row(row, rows) {
-    fn cell_at(&self, index: Index) -> Result<CellRef> {
-        Ok(CellRef {
+    fn cell_at(&self, index: Index) -> CellPos {
+        CellPos {
             row: self.index,
             column: index,
-            board: self.board,
-        })
+        }
     }
 });
 
 cell_list!(Column(column, columns) {
-    fn cell_at(&self, index: Index) -> Result<CellRef> {
-        Ok(CellRef {
+    fn cell_at(&self, index: Index) -> CellPos {
+        CellPos {
             column: self.index,
             row: index,
-            board: self.board,
-        })
+        }
     }
 });
 
 cell_list!(House(house, houses) {
     /// houses are ordered left to right top to bottom
     /// (so 4 is the center house)
-    fn cell_at(&self, index: Index) -> Result<CellRef> {
+    fn cell_at(&self, index: Index) -> CellPos {
         let house = self.index.into_inner();
         let i = index.into_inner();
-        Ok(CellRef {
-            column: Index::new((house % 3) * 3 + (i % 3))?,
-            row: Index::new((house / 3) * 3 + (i/ 3))?,
-            board: self.board,
-        })
+        CellPos {
+            column: Index::new((house % 3) * 3 + (i % 3)).unwrap(),
+            row: Index::new((house / 3) * 3 + (i/ 3)).unwrap(),
+        }
     }
 });
 
-/// An unordered set of cells used for updating
-pub(crate) struct CellSet<'b>(pub(crate) HashSet<CellRef<'b>>);
-
-impl<'b> IntoIterator for CellSet<'b> {
-    type Item = CellRef<'b>;
-    // may change, this is the placeholder for now
-    type IntoIter = im::hashset::ConsumingIter<CellRef<'b>>; // <HashSet<CellRef<'b>> as IntoIterator>::IntoIter
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
 #[cfg(test)]
 mod test {
-    use super::{Board, CellList, CellRef, Index};
+    use super::{Board, CellList, CellPos, Index};
     use crate::board::cell::House;
 
     #[test]
@@ -306,11 +318,10 @@ mod test {
         };
 
         assert_eq!(
-            house.cell_at(Index::new(5).unwrap()).unwrap(),
-            CellRef {
+            house.cell_at(Index::new(5).unwrap()),
+            CellPos {
                 row: Index::new(4).unwrap(),
                 column: Index::new(2).unwrap(),
-                board: &board
             }
         )
     }

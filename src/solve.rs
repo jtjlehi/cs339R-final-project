@@ -66,7 +66,7 @@ impl Board {
                     .try_board_until(|houses| board.validate_cell_list(*houses))
             })
     }
-    fn validate_cell_list<C: CellList>(&self, cell_list: C) -> BoardState {
+    fn validate_cell_list<'b, C: CellList<'b>>(&'b self, cell_list: C) -> BoardState {
         // there can only be one concrete instance of each cell value 1-9
         // cell_list
         // for each value:
