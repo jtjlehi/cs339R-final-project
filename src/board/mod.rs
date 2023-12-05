@@ -26,12 +26,6 @@ enum BuildError {
     RowCount,
     #[error("invalid number of cells in row {0}")]
     CellCount(usize),
-    #[error("invalid cell value")]
-    CellValue,
-}
-
-fn sanatize_board(inner: [[Cell; 9]; 9]) -> [[Cell; 9]; 9] {
-    todo!()
 }
 
 /// Represents the 9 by 9 board
@@ -42,8 +36,7 @@ pub struct Board([[Cell; 9]; 9]);
 
 impl Default for Board {
     fn default() -> Self {
-        let cell: Cell = Default::default();
-        let row: Vec<_> = repeat(cell).take(9).collect();
+        let row: Vec<Cell> = repeat(Default::default()).take(9).collect();
         let board_vec: Vec<_> = repeat(row.try_into().unwrap()).take(9).collect();
         Board(board_vec.try_into().unwrap())
     }
@@ -79,18 +72,14 @@ impl Board {
         }
         Ok(board)
     }
-    pub(crate) fn cell(&self, row: Index, column: Index) -> &Cell {
+    /// get the cell at row, column
+    ///
+    /// used by `CellRef`s
+    fn cell(&self, row: Index, column: Index) -> &Cell {
         // won't fail because Index must be between 0 and 9
         &self.0[row.into_inner()][column.into_inner()]
     }
     fn mut_cell(&mut self, row: Index, column: Index) -> &mut Cell {
         &mut self.0[row.into_inner()][column.into_inner()]
-    }
-    fn update_cell(&self, row: Index, column: Index, val: Cell) -> Self {
-        // the biggest cost of cloning is the hashset for possible cells
-        // I'm using im to reduce this cost
-        let mut new_board = self.clone();
-        new_board.0[row.into_inner()][column.into_inner()] = val;
-        new_board
     }
 }

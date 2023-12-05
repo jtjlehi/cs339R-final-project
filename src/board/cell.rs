@@ -172,45 +172,45 @@ where
     }
     /// gets all cells that meet predicate (including concrete)
     #[inline]
-    fn cells_that(&self, predicate: impl FnOnce(CellRef) -> bool) -> CellSet {
+    fn cells_that(&self, _predicate: impl FnOnce(CellRef) -> bool) -> CellSet {
         todo!()
     }
     /// get all cells which could be the specified number
     #[inline]
-    fn cells_of_num(&self, num: CellVal) -> CellSet {
+    fn cells_of_num(&self, _num: CellVal) -> CellSet {
         todo!()
     }
     /// if num has no concrete instance, return CellSet of cells where it is possible
     /// if num has a concrete instance, return none
     #[inline]
-    fn possible_cells_of_num<'b>(self, num: CellVal) -> Option<CellSet<'b>> {
+    fn possible_cells_of_num<'b>(self, _num: CellVal) -> Option<CellSet<'b>> {
         todo!()
     }
     /// boolean saying if list has a concrete version of the number
     #[inline]
-    fn has_concrete(&self, num: Index) -> bool {
+    fn has_concrete(&self, _num: Index) -> bool {
         todo!()
     }
 
     /// gives all cells that are in both cell_lists
-    fn intersect<C: CellList>(&self, other: &C) -> CellSet {
+    fn intersect<C: CellList>(&self, _other: &C) -> CellSet {
         todo!()
     }
 
     /// gives cells that are in self but not the other cellList
-    fn difference<C: CellList>(&self, other: &C) -> CellSet {
+    fn difference<C: CellList>(&self, _other: &C) -> CellSet {
         todo!()
     }
 
     // -- updates --
 
     /// update cell at index so choice is not an option
-    fn remove_cell_choice(&self, index: Index, choice: CellVal) -> Result<Self> {
+    fn remove_cell_choice(&self, _index: Index, _choice: CellVal) -> Result<Self> {
         todo!()
     }
 
     /// update cell to be the concrete value
-    fn choose_cell(&self, index: Index, choice: CellVal) -> Result<Self> {
+    fn choose_cell(&self, _index: Index, _choice: CellVal) -> Result<Self> {
         todo!()
     }
     /// check to make sure the cell_list is valid
@@ -269,7 +269,7 @@ cell_list!(House(house, houses) {
     /// (so 4 is the center house)
     fn cell_at(&self, index: Index) -> Result<CellRef> {
         let house = self.index.into_inner();
-        let i = self.index.into_inner();
+        let i = index.into_inner();
         Ok(CellRef {
             column: Index::new((house % 3) * 3 + (i % 3))?,
             row: Index::new((house / 3) * 3 + (i/ 3))?,

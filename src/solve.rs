@@ -12,22 +12,23 @@ impl Board {
     /// we don't mutate the Board so we don't have to implement our own stack for backtracking
     pub fn solve(&self) -> BoardState {
         // make sure the board is valid before starting
-        // if it is, we return early
-        let valid_board = match self.validate() {
-            BoardState::Valid(board) => board,
-            possible_board => return possible_board,
-        };
-        // temp variable created to satisfy the borrow checker
-        let mut possible = CellVal::cell_vals().flat_map(|num| {
-            valid_board
-                .rows()
-                .filter_map(move |row| row.possible_cells_of_num(num))
-                // we are testing each cell as value -> the row doesn't matter -> flattening is OK
-                .flat_map(|cell_set| cell_set.into_iter())
-                // if making concrete fails, don't use the board
-                .filter_map(move |cell| cell.make_concrete(num).ok())
-        });
-        possible.try_board_until(Self::solve)
+        // if it isn't, we return early
+        match self.validate() {
+            BoardState::Valid(board) => {
+                // temp variable created to satisfy the borrow checker
+                let mut possible = CellVal::cell_vals().flat_map(|num| {
+                    board
+                        .rows()
+                        .filter_map(move |row| row.possible_cells_of_num(num))
+                        // we are testing each cell as value -> the row doesn't matter -> flattening is OK
+                        .flat_map(|cell_set| cell_set.into_iter())
+                        // if making concrete fails, don't use the board
+                        .filter_map(move |cell| cell.make_concrete(num).ok())
+                });
+                possible.try_board_until(Self::solve)
+            }
+            possible_board => possible_board,
+        }
     }
     /// verifies that all of the rows, columns, and houses are valid
     /// ## Rules
