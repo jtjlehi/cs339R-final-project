@@ -7,7 +7,7 @@ use std::hash::Hash;
 
 /// An Index of a board/row/column
 #[nutype(
-    validate(less_or_equal = 9),
+    validate(less_or_equal = 9, greater = 0),
     derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)
 )]
 pub struct CellVal(usize);
@@ -142,15 +142,10 @@ cell_list!(House(house, houses) {
 });
 
 #[cfg(test)]
-mod test {
-    use im::hashset;
-
-    use super::*;
-    use crate::board::cell::House;
-
+pub(super) mod macros {
     macro_rules! cell_val {
         ($num:expr) => {
-            CellVal::new($num).unwrap()
+            crate::board::cell::CellVal::new($num).unwrap()
         };
     }
     macro_rules! index {
@@ -160,16 +155,24 @@ mod test {
     }
     macro_rules! cell {
         (? $($val:expr),* ) => {
-            Cell::Possibilities(hashset![$(cell_val!($val)),*])
+            crate::board::cell::Cell::Possibilities(im::hashset![$(cell_val!($val)),*])
         };
         ($val:expr) => {
-            Cell::Concrete(cell_val!($val))
+            crate::board::cell::Cell::Concrete(cell_val!($val))
         };
     }
+    pub(crate) use {cell, cell_val, index};
+}
+
+#[cfg(test)]
+mod test {
+    use super::{macros::*, *};
+    use crate::board::cell::House;
+    use crate::board::macros::*;
 
     #[test]
     fn make_concrete_throws_error_for_different_val() {
-        let cell = cell!(1);
+        let cell = macros::cell!(1);
         assert_eq!(
             cell.make_concrete_cell(cell_val!(3)),
             Err(UpdateError::InvalidConcrete)
@@ -211,31 +214,53 @@ mod test {
         assert_eq!(cell.remove_possibility(cell_val!(2)), cell!(? 5, 7));
     }
 
-    fn pos() -> CellPos {
-        CellPos {
-            row: index!(1),
-            column: index!(2),
-        }
-    }
     #[test]
     fn possible_is_concrete_gets_correct_val() {
         // possibilities
         let cell = cell!(? 1);
         assert_eq!(
-            cell.possible_is_concrete(pos()),
-            Some((pos(), cell_val!(1)))
+            cell.possible_is_concrete(pos!()),
+            Some((pos!(), cell_val!(1)))
         )
     }
     #[test]
     fn possible_is_concrete_returns_none_for_concrete() {
         let cell = cell!(3);
-        assert_eq!(cell.possible_is_concrete(pos()), None);
+        assert_eq!(cell.possible_is_concrete(pos!()), None);
     }
     #[test]
     fn possible_is_concrete_returns_none_for_more_then_one() {
         let cell = cell!(? 3, 5);
-        assert_eq!(cell.possible_is_concrete(pos()), None)
+        assert_eq!(cell.possible_is_concrete(pos!()), None)
     }
+
+    macro_rules! test_cell_list {
+        ($test_name:ident => $name:ident($single:ident, $many:ident)) => {
+            #[test]
+            fn $test_name() {
+                let b = board!([]);
+                let single = b.$single(index!(1));
+                assert_eq!(
+                    single,
+                    $name {
+                        index: index!(1),
+                        board: &b
+                    }
+                );
+                let many: Vec<_> = b.$many().collect();
+                let expected: Vec<_> = (0..9)
+                    .map(|i| $name {
+                        index: index!(i),
+                        board: &b,
+                    })
+                    .collect();
+                assert_eq!(many, expected);
+            }
+        };
+    }
+    test_cell_list!(rows_works => Row(row, rows));
+    test_cell_list!(columns_works => Column(column, columns));
+    test_cell_list!(houses_works => House(house, houses));
 
     #[test]
     fn house_cell_at_works() {
@@ -246,12 +271,6 @@ mod test {
             board: &board,
         };
 
-        assert_eq!(
-            house.cell_at(index!(5)),
-            CellPos {
-                row: index!(4),
-                column: index!(2),
-            }
-        )
+        assert_eq!(house.cell_at(index!(5)), pos!(4, 2))
     }
 }

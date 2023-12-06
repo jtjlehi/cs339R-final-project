@@ -5,12 +5,11 @@ use anyhow::Result;
 use cell::Cell;
 use im::HashSet;
 use nutype::nutype;
-use std::iter::repeat;
 use thiserror::Error;
 
 /// a newtype CellVall representing the value a cell can be (1-9)
 #[nutype(
-    validate(less_or_equal = 9, greater = 0),
+    validate(less = 9),
     derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)
 )]
 struct Index(usize);
@@ -38,8 +37,7 @@ pub struct Board([[Cell; 9]; 9]);
 
 impl Default for Board {
     fn default() -> Self {
-        let row: Vec<Cell> = repeat(Default::default()).take(9).collect();
-        let board_vec: Vec<_> = repeat(row.try_into().unwrap()).take(9).collect();
+        let board_vec: Vec<[Cell; 9]> = vec![vec![Default::default(); 9].try_into().unwrap(); 9];
         Board(board_vec.try_into().unwrap())
     }
 }
@@ -118,5 +116,56 @@ impl CellPos {
                 })
                 .collect()
         })
+    }
+}
+
+#[cfg(test)]
+mod macros {
+    use super::Board;
+
+    macro_rules! board {
+        ($rows:tt) => (crate::board::macros::make_board(board!(init $rows)));
+        (init [$($row:tt)* ]) => (vec![$( board_row!($row) ),*]);
+        (init_cell ?)=> (board!(init_cell all));
+        (init_cell all) => (crate::board::cell::macros::cell!(? 1, 2, 3, 4, 5, 6, 7, 8, 9));
+        (init_cell { $($possibility:expr),* }) => (crate::board::cell::macros::cell!(? $( $possibility ),*));
+        (init_cell $concrete:expr) => (crate::board::cell::macros::cell!( $concrete ));
+    }
+    macro_rules! board_row {
+        ([$($cell:tt),*]) => (vec![$( board_cell!($cell) ),*]);
+    }
+    macro_rules! board_cell {
+        (?)=> (board_cell!(all));
+        (all) => (crate::board::cell::macros::cell!(? 1, 2, 3, 4, 5, 6, 7, 8, 9));
+        ({ $($possibility:expr),* }) => (crate::board::cell::macros::cell!(? $( $possibility ),*));
+        ($concrete:expr) => (crate::board::cell::macros::cell!( $concrete ));
+    }
+
+    macro_rules! pos {
+        ($row:expr, $column:expr) => {
+            CellPos {
+                row: crate::board::cell::macros::index!($row),
+                column: crate::board::cell::macros::index!($column),
+            }
+        };
+        () => {
+            crate::board::macros::pos!(1, 2)
+        };
+    }
+    pub(super) use {board, board_cell, board_row, pos};
+
+    pub(super) fn make_board(b: Vec<Vec<super::Cell>>) -> Board {
+        let mut final_board: Board = Default::default();
+
+        for r in 0..9 {
+            if let Some(row) = b.get(r) {
+                for c in 0..9 {
+                    if let Some(cell) = row.get(c) {
+                        final_board.0[r][c] = cell.clone();
+                    }
+                }
+            }
+        }
+        final_board
     }
 }

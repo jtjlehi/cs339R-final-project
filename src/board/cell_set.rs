@@ -116,7 +116,7 @@ fn not_finished(cells: &Result<UpdateSets, UpdateError>) -> bool {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 /// An unordered set of cells used for updating
 pub(crate) struct CellSet<'b> {
     set: HashSet<CellPos>,
@@ -155,5 +155,57 @@ impl<'b, T: CellAt> From<(T, &'b Board)> for CellSet<'b> {
             set: Index::indexes().map(|i| value.0.cell_at(i)).collect(),
             board: value.1,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::board::cell::macros::*;
+    use crate::board::macros::*;
+
+    #[test]
+    fn get_cell_set_from_row_works() {
+        let board: Board = board!([]);
+
+        let row = board.row(index!(5));
+        let set = (0..9).map(|i| pos!(5, i)).collect();
+        assert_eq!(CellSet::from((row, &board)), CellSet { set, board: &board });
+    }
+    #[test]
+    fn get_cell_set_from_column_works() {
+        let board: Board = board!([]);
+
+        let column = board.column(index!(5));
+        let set = (0..9).map(|i| pos!(i, 5)).collect();
+
+        assert_eq!(
+            CellSet::from((column, &board)),
+            CellSet { set, board: &board }
+        );
+    }
+    #[test]
+    fn get_cell_set_from_houses_works() {
+        let board: Board = board!([]);
+
+        let house = board.house(index!(0));
+
+        assert_eq!(
+            CellSet::from((house, &board)),
+            CellSet {
+                set: im::hashset![
+                    pos!(0, 0),
+                    pos!(0, 1),
+                    pos!(0, 2),
+                    pos!(1, 0),
+                    pos!(1, 1),
+                    pos!(1, 2),
+                    pos!(2, 0),
+                    pos!(2, 1),
+                    pos!(2, 2)
+                ],
+                board: &board
+            }
+        );
     }
 }
