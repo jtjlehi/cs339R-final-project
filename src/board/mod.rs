@@ -1,7 +1,8 @@
 mod cell;
 
 use anyhow::Result;
-use cell::{Cell, CellRef};
+use cell::Cell;
+use im::HashSet;
 use nutype::nutype;
 use std::iter::repeat;
 use thiserror::Error;
@@ -18,7 +19,7 @@ impl Index {
     }
 }
 
-pub(crate) use cell::{CellSet, CellVal};
+pub(crate) use cell::CellSet;
 
 #[derive(Error, Debug)]
 enum BuildError {
@@ -72,15 +73,19 @@ impl Board {
         }
         Ok(board)
     }
-    /// get the cell at row, column
-    ///
-    /// used by `CellRef`s
+    /// get the cell at the indicated position
     fn cell(&self, CellPos { row, column }: CellPos) -> &Cell {
         // won't fail because Index must be between 0 and 9
         &self.0[row.into_inner()][column.into_inner()]
     }
     fn mut_cell(&mut self, CellPos { row, column }: CellPos) -> &mut Cell {
         &mut self.0[row.into_inner()][column.into_inner()]
+    }
+    /// iterator over all possible boards where one cell is made concrete
+    ///
+    /// for each possible cell, all possibilities are iterated over
+    pub(crate) fn possible_updates(self) -> impl Iterator<Item = Self> {
+        CellPos::all_cell_pos().flat_map(move |pos| pos.make_concrete_boards(self.clone()))
     }
 }
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -91,5 +96,26 @@ pub(super) struct CellPos {
 impl CellPos {
     fn all_cell_pos() -> impl Iterator<Item = Self> {
         Index::indexes().flat_map(|row| Index::indexes().map(move |column| CellPos { row, column }))
+    }
+    fn make_concrete_boards(self, board: Board) -> impl Iterator<Item = Board> {
+        match board.cell(self) {
+            Cell::Concrete(_) => HashSet::new(),
+            Cell::Possibities(ref set) => set.clone(),
+        }
+        .into_iter()
+        .map(move |num| {
+            CellPos::all_cell_pos()
+                .filter_map(|pos| {
+                    let cell = if pos == self {
+                        board.cell(pos).make_concrete_cell(num).ok()?
+                    } else if pos.row == self.row || pos.column == self.column {
+                        board.cell(pos).remove_possibility(num)
+                    } else {
+                        board.cell(pos).clone()
+                    };
+                    Some((pos, cell))
+                })
+                .collect()
+        })
     }
 }

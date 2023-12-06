@@ -63,10 +63,8 @@ impl Board {
     where
         CellSet<'b>: From<(C, &'b Board)>,
     {
-        let mut set = CellSet::from((cell_list, self));
-        let x = set.values_can_exist();
-        // BoardState::Err(UpdateError::InvalidConcrete);
-
+        let set = CellSet::from((cell_list, self));
+        let _ = set.values_can_exist();
         todo!()
     }
 }
