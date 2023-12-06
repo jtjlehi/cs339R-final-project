@@ -50,7 +50,7 @@ impl From<Board> for [[Option<usize>; 9]; 9] {
             for (c, cell) in row.iter().enumerate() {
                 arr[r][c] = match cell {
                     Cell::Concrete(cell_val) => Some(cell_val.into_inner()),
-                    Cell::Possibities(_) => None,
+                    Cell::Possibilities(_) => None,
                 };
             }
         }
@@ -101,7 +101,7 @@ impl CellPos {
     fn make_concrete_boards(self, board: Board) -> impl Iterator<Item = Board> {
         match board.cell(self) {
             Cell::Concrete(_) => HashSet::new(),
-            Cell::Possibities(ref set) => set.clone(),
+            Cell::Possibilities(ref set) => set.clone(),
         }
         .into_iter()
         .map(move |num| {

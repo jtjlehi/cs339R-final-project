@@ -7,7 +7,7 @@ use std::hash::Hash;
 
 /// An Index of a board/row/column
 #[nutype(
-    validate(less = 9),
+    validate(less_or_equal = 9),
     derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)
 )]
 pub struct CellVal(usize);
@@ -25,18 +25,18 @@ pub struct PossibleCells(HashSet<CellVal>);
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Cell {
     Concrete(CellVal),
-    Possibities(HashSet<CellVal>),
+    Possibilities(HashSet<CellVal>),
 }
 
 impl Default for Cell {
     fn default() -> Self {
-        Cell::Possibities(CellVal::cell_vals().collect())
+        Cell::Possibilities(CellVal::cell_vals().collect())
     }
 }
 impl Cell {
     pub(super) fn new(inner: Option<u8>) -> Result<Self> {
         Ok(match inner {
-            None => Cell::Possibities(CellVal::cell_vals().collect()),
+            None => Cell::Possibilities(CellVal::cell_vals().collect()),
             Some(i) => Cell::Concrete(CellVal::new(i as usize)?),
         })
     }
@@ -46,8 +46,8 @@ impl Cell {
     pub(super) fn make_concrete_cell(&self, num: CellVal) -> Result<Self, UpdateError> {
         use Cell::*;
         Ok(match self {
-            &Concrete(val) if val != num => Concrete(val),
-            Possibities(set) if set.contains(&num) => Concrete(num),
+            &Concrete(val) if val == num => Concrete(val),
+            Possibilities(set) if set.contains(&num) => Concrete(num),
             _ => Err(UpdateError::InvalidConcrete)?,
         })
     }
@@ -55,15 +55,15 @@ impl Cell {
     pub(super) fn remove_possibility(&self, num: CellVal) -> Self {
         use Cell::*;
         match self {
-            Possibities(set) if set.contains(&num) => Possibities(set.without(&num)),
+            Possibilities(set) if set.contains(&num) => Possibilities(set.without(&num)),
             // clone should be constant time
-            Possibities(set) => Possibities(set.clone()),
+            Possibilities(set) => Possibilities(set.clone()),
             &Concrete(val) => Concrete(val),
         }
     }
     pub(super) fn possible_is_concrete(&self, pos: CellPos) -> Option<(CellPos, CellVal)> {
         match self {
-            Cell::Possibities(set) if set.len() == 1 => {
+            Cell::Possibilities(set) if set.len() == 1 => {
                 set.into_iter().next().map(|&val| (pos, val))
             }
             _ => None,
@@ -143,23 +143,114 @@ cell_list!(House(house, houses) {
 
 #[cfg(test)]
 mod test {
-    use super::{Board, CellAt, CellPos, Index};
+    use im::hashset;
+
+    use super::*;
     use crate::board::cell::House;
+
+    macro_rules! cell_val {
+        ($num:expr) => {
+            CellVal::new($num).unwrap()
+        };
+    }
+    macro_rules! index {
+        ($num:expr) => {
+            Index::new($num).unwrap()
+        };
+    }
+    macro_rules! cell {
+        (? $($val:expr),* ) => {
+            Cell::Possibilities(hashset![$(cell_val!($val)),*])
+        };
+        ($val:expr) => {
+            Cell::Concrete(cell_val!($val))
+        };
+    }
+
+    #[test]
+    fn make_concrete_throws_error_for_different_val() {
+        let cell = cell!(1);
+        assert_eq!(
+            cell.make_concrete_cell(cell_val!(3)),
+            Err(UpdateError::InvalidConcrete)
+        );
+    }
+    #[test]
+    fn make_concrete_keeps_same_val() {
+        let cell = cell!(1);
+        assert_eq!(cell.make_concrete_cell(cell_val!(1)), Ok(cell!(1)));
+    }
+    #[test]
+    fn make_concrete_makes_concrete() {
+        let cell = cell!(? 3, 4, 8);
+        assert_eq!(cell.make_concrete_cell(cell_val!(3)), Ok(cell!(3)));
+    }
+    #[test]
+    fn make_concrete_fails_if_not_possible() {
+        let cell = cell!(? 1, 5, 8, 9);
+        assert_eq!(
+            cell.make_concrete_cell(cell_val!(3)),
+            Err(UpdateError::InvalidConcrete)
+        );
+    }
+
+    #[test]
+    fn remove_possibility_does_nothing_for_concrete() {
+        let cell = cell!(6);
+        assert_eq!(cell.remove_possibility(cell_val!(6)), cell!(6));
+        assert_eq!(cell.remove_possibility(cell_val!(8)), cell!(6));
+    }
+    #[test]
+    fn remove_possibility_removes_possibility() {
+        let cell = cell!(? 5, 7);
+        assert_eq!(cell.remove_possibility(cell_val!(5)), cell!(? 7));
+    }
+    #[test]
+    fn remove_possibilities_does_nothing_if_not_needed() {
+        let cell = cell!(? 5, 7);
+        assert_eq!(cell.remove_possibility(cell_val!(2)), cell!(? 5, 7));
+    }
+
+    fn pos() -> CellPos {
+        CellPos {
+            row: index!(1),
+            column: index!(2),
+        }
+    }
+    #[test]
+    fn possible_is_concrete_gets_correct_val() {
+        // possibilities
+        let cell = cell!(? 1);
+        assert_eq!(
+            cell.possible_is_concrete(pos()),
+            Some((pos(), cell_val!(1)))
+        )
+    }
+    #[test]
+    fn possible_is_concrete_returns_none_for_concrete() {
+        let cell = cell!(3);
+        assert_eq!(cell.possible_is_concrete(pos()), None);
+    }
+    #[test]
+    fn possible_is_concrete_returns_none_for_more_then_one() {
+        let cell = cell!(? 3, 5);
+        assert_eq!(cell.possible_is_concrete(pos()), None)
+    }
 
     #[test]
     fn house_cell_at_works() {
         let board: Board = Default::default();
 
         let house = House {
-            index: Index::new(3).unwrap(),
+            index: index!(3),
             board: &board,
         };
 
         assert_eq!(
-            house.cell_at(Index::new(5).unwrap()),
+            house.cell_at(index!(5)),
             CellPos {
-                row: Index::new(4).unwrap(),
-                column: Index::new(2).unwrap(),
+                row: index!(4),
+                column: index!(2),
             }
         )
     }
