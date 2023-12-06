@@ -3,7 +3,7 @@ use crate::UpdateError;
 use anyhow::Result;
 use im::{hashset::ConsumingIter, HashSet};
 use nutype::nutype;
-use std::{hash::Hash, ops::Deref};
+use std::{hash::Hash, iter::successors, ops::Deref};
 
 /// An Index of a board/row/column
 #[nutype(
@@ -77,7 +77,11 @@ impl<'b> PartialEq for CellRef<'b> {
 impl<'b> Eq for CellRef<'b> {}
 impl<'b> Hash for CellRef<'b> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.pos.hash(state);
+        let cell: &Cell = self;
+        match cell {
+            Cell::Concrete(cell_val) => cell_val.hash(state),
+            _ => self.pos.hash(state),
+        }
     }
 }
 impl<'b> Deref for CellRef<'b> {
@@ -87,10 +91,10 @@ impl<'b> Deref for CellRef<'b> {
         self.board.cell(self.pos)
     }
 }
-impl<'b> FromIterator<(CellRef<'b>, Cell)> for Board {
-    fn from_iter<T: IntoIterator<Item = (CellRef<'b>, Cell)>>(iter: T) -> Self {
+impl FromIterator<(CellPos, Cell)> for Board {
+    fn from_iter<T: IntoIterator<Item = (CellPos, Cell)>>(iter: T) -> Self {
         let mut board: Board = Default::default();
-        for (CellRef { pos, .. }, cell) in iter {
+        for (pos, cell) in iter {
             *board.mut_cell(pos) = cell;
         }
         board
@@ -103,30 +107,12 @@ impl<'b> IntoIterator for &'b Board {
 
     fn into_iter(self) -> Self::IntoIter {
         self.rows()
-            .flat_map(|row| row.all_cells(self))
+            .flat_map(|row| CellSet::from((row, self)))
             .collect::<Vec<_>>()
             .into_iter()
     }
 }
-impl<'b> CellRef<'b> {
-    /// attempt to make the cell concrete, updating the board as needed
-    pub(crate) fn make_concrete(self, num: CellVal) -> Result<Board> {
-        self.board
-            .into_iter()
-            .map(|cell_ref| {
-                let cell = if cell_ref == self {
-                    cell_ref.make_concrete_cell(num)?
-                } else if cell_ref.pos.row == self.pos.row || cell_ref.pos.column == self.pos.column
-                {
-                    cell_ref.remove_possibility(num)
-                } else {
-                    (*cell_ref).clone()
-                };
-                Ok((cell_ref, cell))
-            })
-            .collect()
-    }
-}
+impl<'b> CellRef<'b> {}
 
 #[derive(Clone)]
 /// An unordered set of cells used for updating
@@ -134,55 +120,100 @@ pub(crate) struct CellSet<'b> {
     set: HashSet<CellPos>,
     board: &'b Board,
 }
-
-impl<'b> IntoIterator for CellSet<'b> {
-    type Item = CellRef<'b>;
-    // may change, this is the placeholder for now
-    type IntoIter = CellIter<'b>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        CellIter {
-            iter: self.set.into_iter(),
-            board: self.board,
-        }
+#[derive(Clone)]
+struct CellRefSet<'b> {
+    set: HashSet<CellRef<'b>>,
+    board: &'b Board,
+}
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct ConcreteSetElement {
+    pos: CellPos,
+    val: CellVal,
+}
+impl Hash for ConcreteSetElement {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // we don't use position because that isn't what we care about making unique
+        self.val.hash(state);
     }
 }
+
+#[derive(Clone)]
+struct UpdateSets {
+    board: Board,
+    remove_possible_set: HashSet<CellPos>,
+    make_concrete_set: HashSet<CellPos>,
+    concrete_set: HashSet<ConcreteSetElement>,
+    possible_set: HashSet<CellPos>,
+}
+impl<'b> TryFrom<CellSet<'b>> for UpdateSets {
+    type Error = UpdateError;
+
+    fn try_from(cell_set: CellSet<'b>) -> std::prelude::v1::Result<Self, Self::Error> {
+        let board = cell_set.board.clone();
+        let (concrete_set, possible_set) = Self::get_initial(cell_set, board.clone())?;
+
+        Ok(UpdateSets {
+            board,
+            remove_possible_set: HashSet::new(),
+            make_concrete_set: HashSet::new(),
+            possible_set,
+            concrete_set,
+        })
+    }
+}
+impl UpdateSets {
+    fn get_initial(
+        cell_set: CellSet,
+        board: Board,
+    ) -> Result<(HashSet<ConcreteSetElement>, HashSet<CellPos>), UpdateError> {
+        let (concretes, positions): (HashSet<_>, HashSet<_>) = cell_set
+            .set
+            .clone()
+            .into_iter()
+            .filter_map(|pos| match board.cell(pos) {
+                &Cell::Concrete(val) => Some((ConcreteSetElement { val, pos }, pos)),
+                Cell::Possibities(_) => None,
+            })
+            .unzip();
+
+        let mut concrete_set = HashSet::new();
+        for concrete in concretes {
+            if concrete_set.insert(concrete).is_some() {
+                Err(UpdateError::InvalidConcrete)?
+            };
+        }
+        let possible_set = cell_set.set.clone().difference(positions.clone());
+        Ok((concrete_set, possible_set))
+    }
+    fn update(&self) -> Result<Self, UpdateError> {
+        todo!()
+    }
+    fn finished(&self) -> bool {
+        self.remove_possible_set.is_empty() && self.make_concrete_set.is_empty()
+    }
+}
+fn update(cells: &Result<UpdateSets, UpdateError>) -> Option<Result<UpdateSets, UpdateError>> {
+    match cells {
+        Ok(cells) => Some(cells.update()),
+        Err(errs) => Some(Err(*errs)),
+    }
+}
+fn not_finished(cells: &Result<UpdateSets, UpdateError>) -> bool {
+    match cells {
+        Ok(cells) => cells.finished(),
+        Err(_) => false,
+    }
+}
+
 impl<'b> CellSet<'b> {
-    /// get all cells which could be the specified number
-    #[inline]
-    pub(crate) fn cells_of_num(self, _num: CellVal) -> CellSet<'b> {
-        todo!()
-    }
-    /// boolean saying if list has a concrete version of the number
-    #[inline]
-    pub(crate) fn has_concrete(&self, _num: Index) -> bool {
-        todo!()
-    }
-
-    /// gives all cells that are in both cell_lists
-    pub(crate) fn intersect<C: CellList<'b>>(&self, _other: &C) -> CellSet {
-        todo!()
-    }
-
-    /// gives cells that are in self but not the other cellList
-    pub(crate) fn difference<C: CellList<'b>>(&self, _other: &C) -> CellSet {
-        todo!()
-    }
-
-    // -- updates --
-
-    /// update cell at index so choice is not an option
-    pub(crate) fn remove_cell_choice(&self, _index: Index, _choice: CellVal) -> Result<Self> {
-        todo!()
-    }
-
-    /// update cell to be the concrete value
-    pub(crate) fn choose_cell(&self, _index: Index, _choice: CellVal) -> Result<Self> {
-        todo!()
-    }
-    /// check to make sure the cell_list is valid
-    pub(crate) fn valid_cell_list(&self) -> Result<Self> {
-        todo!()
+    /// checks that there are no duplicates or potential duplicates
+    pub(crate) fn values_can_exist(self) -> Result<Board> {
+        let update_sets: UpdateSets = self.try_into()?;
+        let set = successors(Some(Ok(update_sets)), update)
+            .take_while(not_finished)
+            .last()
+            .unwrap()?;
+        Ok(set.board)
     }
 }
 
@@ -200,67 +231,64 @@ impl<'b> Iterator for CellIter<'b> {
         })
     }
 }
+impl<'b> IntoIterator for CellSet<'b> {
+    type Item = CellRef<'b>;
+    // may change, this is the placeholder for now
+    type IntoIter = CellIter<'b>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        CellIter {
+            iter: self.set.into_iter(),
+            board: self.board,
+        }
+    }
+}
 
 impl Board {
     /// get all of the cells on the board that could possibly be the indicated value
     ///
     /// skip the concrete values
     pub(crate) fn possible_cells_of_num(&self, num: CellVal) -> impl Iterator<Item = CellRef> {
-        Index::indexes()
-            .flat_map(|row| Index::indexes().map(move |column| CellPos { row, column }))
-            .filter_map(move |pos| {
-                let cell_ref = CellRef { pos, board: self };
-                match *cell_ref {
-                    Cell::Possibities(ref set) if set.contains(&num) => Some(cell_ref),
-                    _ => None,
-                }
-            })
+        CellPos::all_cell_pos().filter_map(move |pos| {
+            let cell_ref = CellRef { pos, board: self };
+            match *cell_ref {
+                Cell::Possibities(ref set) if set.contains(&num) => Some(cell_ref),
+                _ => None,
+            }
+        })
+    }
+    /// iterator over all possible boards where one cell is made concrete
+    ///
+    /// for each possible cell, all possibilities are iterated over
+    pub(crate) fn possible_updates(self) -> impl Iterator<Item = Self> {
+        CellPos::all_cell_pos().flat_map(move |pos| pos.make_concrete_boards(self.clone()))
     }
 }
-/// a CellList is the representation of the cells in a row/column/house
-///
-/// a CellList provides:
-/// - ways to update the cell values while maintaining certain rules
-/// - ways to query the CellList
-///
-/// ##Queries
-///
-/// different queries provide different ways of looking at the information in the cellList.
-///
-/// ## Rules
-///
-/// The following rules must be met by a CellList:
-/// - there can only be one concrete instance of each cell value 1-9
-/// - if a value can only exist in one cell, that cell has that concrete value
-/// - if a cell can only have one value, that cell has that value
-/// - if a value cannot exist, the cellList is invalid
-/// - if a cell cannot have any values, the cellList is invalid
-///
-/// ## Updating
-///
-/// All updating functions are fallible. The only way for an update to succeed is if all of the
-/// rules are still satisfied at the end of the update.
-pub(crate) trait CellList<'b>
-where
-    Self: Sized + Copy,
-{
-    /// provide some way to order the cells
-    ///
-    /// 0 indexed access of cell
-    fn cell_at(&self, index: Index) -> CellPos;
+impl CellPos {
+    fn make_concrete_boards(self, board: Board) -> impl Iterator<Item = Board> {
+        let cell_vals = match board.cell(self) {
+            Cell::Concrete(_) => HashSet::new(),
+            Cell::Possibities(ref set) => set.clone(),
+        };
+        let update_cell = move |num| {
+            board
+                .into_iter()
+                .filter_map(|board_cell @ CellRef { pos, .. }| {
+                    let cell = if pos == self {
+                        board_cell.make_concrete_cell(num).ok()?
+                    } else if pos.row == self.row || pos.column == self.column {
+                        board_cell.remove_possibility(num)
+                    } else {
+                        (*board_cell).clone()
+                    };
+                    Some((pos, cell))
+                })
+                .collect()
+        };
+        cell_vals.into_iter().map(update_cell)
+    }
+}
 
-    /// a list of all the cells in order specified by `cell_at`
-    ///
-    /// while it is assumed to be ordered in a determined manner, it may not be if cell_at is
-    /// determined
-    #[inline]
-    fn all_cells(self, board: &Board) -> CellSet {
-        CellSet {
-            set: Index::indexes().map(|i| self.cell_at(i)).collect(),
-            board,
-        }
-    }
-}
 macro_rules! cell_list {
     ($name:ident($single:ident, $many:ident) {$cell_at:item}) => {
         #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -268,14 +296,25 @@ macro_rules! cell_list {
             index: Index,
             board: &'b Board,
         }
+        impl<'b> $name<'b> {
+            $cell_at
+        }
+        impl<'b> From<($name<'b>, &'b Board)> for CellSet<'b> {
+            fn from(value: ($name<'b>, &'b Board)) -> Self {
+                Self {
+                    set: Index::indexes().map(|i| value.0.cell_at(i)).collect(),
+                    board: value.1,
+                }
+            }
+        }
         impl Hash for $name<'_> {
             fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
                 self.index.hash(state);
             }
         }
-        impl<'b> CellList<'b> for $name<'b> {
-            $cell_at
-        }
+        // impl<'b> CellList<'b> for $name<'b> {
+        //     $cell_at
+        // }
         impl Board {
             pub(crate) fn $single(&self, index: Index) -> $name {
                 $name { index, board: self }
@@ -320,7 +359,7 @@ cell_list!(House(house, houses) {
 
 #[cfg(test)]
 mod test {
-    use super::{Board, CellList, CellPos, Index};
+    use super::{Board, CellPos, Index};
     use crate::board::cell::House;
 
     #[test]

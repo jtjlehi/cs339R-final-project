@@ -1,7 +1,4 @@
-use crate::{
-    board::{CellList, CellVal},
-    Board, UpdateError,
-};
+use crate::{board::CellSet, Board, UpdateError};
 use std::{iter::successors, ops::ControlFlow};
 
 type ControlSolution = ControlFlow<Board, Result<Board, UpdateError>>;
@@ -11,19 +8,8 @@ impl Board {
     ///
     /// we don't mutate the Board so we don't have to implement our own stack for backtracking
     pub fn solve(self) -> BoardState {
-        // make sure the board is valid before starting
-        // if it isn't, we return early
         match self.validate() {
-            BoardState::Valid(board) => {
-                // temp variable created to satisfy the borrow checker
-                let mut possible = CellVal::cell_vals().flat_map(|num| {
-                    board
-                        .possible_cells_of_num(num)
-                        // if making concrete fails, don't use the board
-                        .filter_map(move |cell| cell.make_concrete(num).ok())
-                });
-                possible.try_board_until(Self::solve)
-            }
+            BoardState::Valid(board) => board.possible_updates().try_board_until(Self::solve),
             possible_board => possible_board,
         }
     }
@@ -51,27 +37,36 @@ impl Board {
     /// single pass of validation marking if any changes were made along the way
     fn validate_helper(&self) -> BoardState {
         self.rows()
-            .try_board_until(|row| self.validate_cell_list(row))
+            .try_board_until(|row| self.validate_cell_set(row))
             .and_then(|board| {
                 board
                     .columns()
-                    .try_board_until(|column| board.validate_cell_list(column))
+                    .try_board_until(|column| board.validate_cell_set(column))
             })
             .and_then(|board| {
                 board
                     .houses()
-                    .try_board_until(|houses| board.validate_cell_list(houses))
+                    .try_board_until(|houses| board.validate_cell_set(houses))
             })
     }
-    fn validate_cell_list<'b, C: CellList<'b>>(&'b self, cell_list: C) -> BoardState {
-        // there can only be one concrete instance of each cell value 1-9
-        // cell_list
-        // for each value:
-        //  - if it can only exist in one cell, that cell has that concrete value
-        //  - it must be able to exist
-        // for each cell
-        //  - if it can only have one value, it has that value
-        //  - it must be able to exist
+    /// Validate that for the cell list:
+    ///
+    /// there can only be one concrete instance of each cell value 1-9
+    /// cell_list
+    /// for each value:
+    ///  - if it can only exist in one cell, that cell has that concrete value
+    ///  - it must be able to exist
+    /// for each cell
+    ///  - if it can only have one value, it has that value
+    ///  - it must be able to exist
+    fn validate_cell_set<'b, C>(&'b self, cell_list: C) -> BoardState
+    where
+        CellSet<'b>: From<(C, &'b Board)>,
+    {
+        let mut set = CellSet::from((cell_list, self));
+        let x = set.values_can_exist();
+        // BoardState::Err(UpdateError::InvalidConcrete);
+
         todo!()
     }
 }

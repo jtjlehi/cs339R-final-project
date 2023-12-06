@@ -1,7 +1,7 @@
 mod cell;
 
 use anyhow::Result;
-use cell::Cell;
+use cell::{Cell, CellRef};
 use nutype::nutype;
 use std::iter::repeat;
 use thiserror::Error;
@@ -18,7 +18,7 @@ impl Index {
     }
 }
 
-pub(crate) use cell::{CellList, CellVal};
+pub(crate) use cell::{CellSet, CellVal};
 
 #[derive(Error, Debug)]
 enum BuildError {
@@ -83,8 +83,13 @@ impl Board {
         &mut self.0[row.into_inner()][column.into_inner()]
     }
 }
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct CellPos {
     row: Index,
     column: Index,
+}
+impl CellPos {
+    fn all_cell_pos() -> impl Iterator<Item = Self> {
+        Index::indexes().flat_map(|row| Index::indexes().map(move |column| CellPos { row, column }))
+    }
 }
