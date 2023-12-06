@@ -1,4 +1,5 @@
 mod cell;
+mod cell_set;
 
 use anyhow::Result;
 use cell::Cell;
@@ -19,7 +20,7 @@ impl Index {
     }
 }
 
-pub(crate) use cell::CellSet;
+pub(crate) use cell_set::CellSet;
 
 #[derive(Error, Debug)]
 enum BuildError {
