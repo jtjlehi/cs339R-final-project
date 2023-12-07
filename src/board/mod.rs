@@ -1,6 +1,8 @@
 mod cell;
 mod cell_set;
 
+use std::fmt;
+
 use anyhow::Result;
 use cell::Cell;
 use im::HashSet;
@@ -87,10 +89,18 @@ impl Board {
         CellPos::all_cell_pos().flat_map(move |pos| pos.make_concrete_boards(self.clone()))
     }
 }
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct CellPos {
     row: Index,
     column: Index,
+}
+impl fmt::Debug for CellPos {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("CellPos")
+            .field(&self.row.into_inner())
+            .field(&self.column.into_inner())
+            .finish()
+    }
 }
 impl CellPos {
     fn all_cell_pos() -> impl Iterator<Item = Self> {
@@ -125,18 +135,13 @@ mod macros {
 
     macro_rules! board {
         ($rows:tt) => (crate::board::macros::make_board(board!(init $rows)));
-        (init [$($row:tt)* ]) => (vec![$( board_row!($row) ),*]);
-        (init_cell ?)=> (board!(init_cell all));
-        (init_cell all) => (crate::board::cell::macros::cell!(? 1, 2, 3, 4, 5, 6, 7, 8, 9));
-        (init_cell { $($possibility:expr),* }) => (crate::board::cell::macros::cell!(? $( $possibility ),*));
-        (init_cell $concrete:expr) => (crate::board::cell::macros::cell!( $concrete ));
+        (init [ $($row:tt)* ]) => (vec![$( board_row!($row) ),*]);
     }
     macro_rules! board_row {
         ([$($cell:tt),*]) => (vec![$( board_cell!($cell) ),*]);
     }
     macro_rules! board_cell {
-        (?)=> (board_cell!(all));
-        (all) => (crate::board::cell::macros::cell!(? 1, 2, 3, 4, 5, 6, 7, 8, 9));
+        (?)=> (crate::board::cell::macros::cell!(? 1, 2, 3, 4, 5, 6, 7, 8, 9));
         ({ $($possibility:expr),* }) => (crate::board::cell::macros::cell!(? $( $possibility ),*));
         ($concrete:expr) => (crate::board::cell::macros::cell!( $concrete ));
     }
@@ -148,6 +153,10 @@ mod macros {
                 column: crate::board::cell::macros::index!($column),
             }
         };
+        (iter $row:expr, { $( $column:expr ),* }) => {
+            [$(pos!($row, $column)),*].into_iter()
+        };
+        (iter $row:expr, $column:expr) => (std::iter::once(pos!($row, $column)));
         () => {
             crate::board::macros::pos!(1, 2)
         };
