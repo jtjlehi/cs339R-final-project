@@ -122,10 +122,10 @@ fn update(cells: &Result<UpdateSets, UpdateError>) -> Option<Result<UpdateSets, 
         Err(errs) => Some(Err(*errs)),
     }
 }
-fn not_finished(cells: &Result<UpdateSets, UpdateError>) -> bool {
+fn finished(cells: &Result<UpdateSets, UpdateError>) -> bool {
     match cells {
-        Ok(cells) => !cells.finished(),
-        Err(_) => false,
+        Ok(cells) => cells.finished(),
+        Err(_) => true,
     }
 }
 
@@ -157,13 +157,11 @@ impl<'b> TryFrom<CellSet<'b>> for UpdateSets {
 }
 impl<'b> CellSet<'b> {
     /// checks that there are no duplicates or potential duplicates
-    pub(crate) fn values_can_exist(self) -> Result<Board> {
-        let update_sets: UpdateSets = self.try_into()?;
-        let set = successors(Some(Ok(update_sets)), update)
-            .take_while(not_finished)
-            .last()
-            .unwrap()?;
-        Ok(set.board)
+    pub(crate) fn check_and_update(self) -> Result<Board> {
+        Ok(successors(Some(UpdateSets::try_from(self)), update)
+            .find(finished) // find the first iteration that is 'finished'
+            .unwrap()?
+            .board)
     }
 }
 impl<'b, T: CellAt> From<(T, &'b Board)> for CellSet<'b> {
@@ -427,5 +425,54 @@ mod test {
             make_concrete_set: im::hashset![],
         };
         assert_eq!(update_sets.update(), Err(UpdateError::InvalidConcrete));
+    }
+
+    #[test]
+    fn check_and_update_terminates_when_initial_board_is_finished() {
+        let board = board!([[1, 2, 3, 4, 9, 5, 6, 7, 8]]);
+        let cell_set = cell_set!(row(0, board));
+
+        assert_eq!(cell_set.check_and_update().unwrap(), board);
+    }
+    #[test]
+    fn check_and_update_terminates_with_initial_error() {
+        let board = board!([[1, 2, 3, 4, 5, 5, 6, 7, 8]]);
+        let cell_set = cell_set!(row(0, board));
+
+        assert!(cell_set.check_and_update().is_err());
+    }
+    #[test]
+    fn check_and_update_finds_errors() {
+        let board = board!([[1, 2, 3, 4, { 4 }, 5, 6, 7, 8]]);
+        let cell_set = cell_set!(row(0, board));
+
+        assert!(cell_set.check_and_update().is_err());
+    }
+    #[test]
+    fn check_and_update_finds_errors_2() {
+        let board = board!([[1, 2, 3, 4, { 7, 4, 5 }, { 5, 7 }, { 6 }, { 6, 7 }, 8]]);
+        let cell_set = cell_set!(row(0, board));
+
+        assert!(cell_set.check_and_update().is_err());
+    }
+    #[test]
+    fn check_and_update_terminates() {
+        let board = board!([[
+            { 1, 7 },
+            { 1, 2 },
+            { 1, 2, 3 },
+            { 1, 2, 3, 4 },
+            { 6, 4, 5 },
+            ?,
+            { 7, 8 },
+            { 8, 9 },
+            { 9 }
+        ]]);
+        let cell_set = cell_set!(row(0, board));
+
+        assert_eq!(
+            cell_set.check_and_update().unwrap(),
+            board!([[1, 2, 3, 4, { 5, 6 }, { 5, 6 }, 7, 8, 9]])
+        );
     }
 }

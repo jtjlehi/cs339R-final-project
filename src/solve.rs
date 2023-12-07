@@ -64,7 +64,7 @@ impl Board {
         CellSet<'b>: From<(C, &'b Board)>,
     {
         let set = CellSet::from((cell_list, self));
-        let _ = set.values_can_exist();
+        let _ = set.check_and_update();
         todo!()
     }
 }
