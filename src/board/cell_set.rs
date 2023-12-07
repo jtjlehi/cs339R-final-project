@@ -343,7 +343,7 @@ mod test {
         );
     }
     #[test]
-    fn errors_when_invalid_update_set() {
+    fn cell_list_to_update_sets_errors_when_board_invalid() {
         let board = board!([[3, 2, ?, { 9, 7 }, ?, 3, 1, { 4 }, { 4, 5, 9 }]]);
         let cell_set = cell_set!(row(0, board));
 
@@ -351,5 +351,81 @@ mod test {
             UpdateSets::try_from(cell_set),
             Err(UpdateError::InvalidConcrete)
         );
+    }
+
+    #[test]
+    fn update_removes_possible() {
+        let possible_set: HashSet<_> = pos!(iter 0, {2, 3, 4, 7, 8}).collect();
+        let concrete_set = concrete_set![3, 2, 7, 1];
+        let update_sets = UpdateSets {
+            board: board!([[3, 2, ?, {4, 5, 7}, ?, 7, 1, {4, 5}, {4, 5, 9}]]),
+            possible_set: possible_set.clone(),
+            remove_possible_set: update_cells!(0 => {
+                3 => 7,
+                { 2, 4 } =>  { 3, 2, 7, 1 }
+            }),
+            concrete_set: concrete_set.clone(),
+            make_concrete_set: im::hashset![],
+        };
+        let updated = update_sets.update().unwrap();
+
+        assert_eq!(
+            updated.board,
+            board!([[3, 2, { 4, 5, 6, 8, 9 }, { 4, 5 }, { 4, 5, 6, 8, 9 }, 7, 1, { 4, 5 }, { 4, 5, 9 }]])
+        );
+        assert_eq!(updated.possible_set, possible_set);
+        assert_eq!(updated.concrete_set, concrete_set);
+        assert_eq!(updated.remove_possible_set, im::hashset![]);
+        assert_eq!(updated.make_concrete_set, im::hashset![]);
+    }
+    #[test]
+    fn update_with_make_concrete() {
+        let possible_set: HashSet<_> = pos!(iter 0, {2, 3, 4, 7, 8}).collect();
+        let concrete_set = concrete_set![3, 2, 7, 1];
+        let update_sets = UpdateSets {
+            board: board!([[3, 2, ?, { 9, 7 }, ?, 7, 1, { 4 }, { 4, 5, 9 }]]),
+            possible_set: possible_set.clone(),
+            remove_possible_set: update_cells!(0 => {
+                3 => 7,
+                { 2, 4 } =>  { 3, 2, 7, 1 }
+            }),
+            concrete_set: concrete_set.clone(),
+            make_concrete_set: update_cells!(0 => { 7 => 4 }),
+        };
+        let updated = update_sets.update().unwrap();
+
+        assert_eq!(
+            updated.board,
+            board!([[3, 2, { 4, 5, 6, 8, 9 }, 9, { 4, 5, 6, 8, 9 }, 7, 1, 4, { 4, 5, 9 }]])
+        );
+        assert_eq!(updated.possible_set, pos!(iter 0, { 2, 4, 8 }).collect());
+        assert_eq!(updated.concrete_set, concrete_set![3, 2, 9, 7, 1, 4]);
+        assert_eq!(
+            updated.remove_possible_set,
+            update_cells!(0 => { { 2, 4, 8 } => { 4, 9 } })
+        );
+        assert_eq!(updated.make_concrete_set, im::hashset![]);
+    }
+    #[test]
+    fn update_errors_when_overlapping_make_concrete() {
+        let update_sets = UpdateSets {
+            board: board!([[1, 2, 3, { 4 }, { 4 }, 5, 6, 7, 8]]),
+            possible_set: pos!(iter 0, 4).collect(),
+            remove_possible_set: im::hashset![],
+            concrete_set: concrete_set![1, 2, 3, 5, 6, 7, 8],
+            make_concrete_set: update_cells!(0 => { { 3, 4 } => 4 }),
+        };
+        assert_eq!(update_sets.update(), Err(UpdateError::InvalidConcrete));
+    }
+    #[test]
+    fn update_errors_when_no_possibility_left() {
+        let update_sets = UpdateSets {
+            board: board!([[1, 2, 3, 4, { 4, 5 }, 5, 6, 7, 8]]),
+            possible_set: pos!(iter 0, 4).collect(),
+            remove_possible_set: update_cells!(0 => { 4 => { 4, 5 } }),
+            concrete_set: concrete_set![1, 2, 3, 5, 6, 7, 8],
+            make_concrete_set: im::hashset![],
+        };
+        assert_eq!(update_sets.update(), Err(UpdateError::InvalidConcrete));
     }
 }
