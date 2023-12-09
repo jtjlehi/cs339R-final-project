@@ -6,16 +6,13 @@ use crate::UpdateError;
 use anyhow::Result;
 use im::HashSet;
 
-type UpdateCells = HashSet<(CellPos, CellVal)>;
 type PossibleSet = HashSet<CellPos>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ConcreteSet(HashSet<CellVal>);
 impl ConcreteSet {
     fn insert(&mut self, val: CellVal) -> Result<(), UpdateError> {
-        println!("insert val {val:?} into {self:?}");
         if self.0.contains(&val) {
-            println!("its already is there");
             Err(UpdateError::InvalidConcrete)?;
         } else {
             self.0.insert(val);
@@ -34,16 +31,13 @@ impl<'b> UpdateSets<'b> {
     fn update(&mut self) -> Result<(), UpdateError> {
         let mut new_concretes = im::hashset![];
         // make possible changes
-        println!("possible_set: {:?}", self.possible_set);
         for &pos in &self.possible_set {
             *self.board.mut_cell(pos) = self
                 .board
                 .cell(pos)
                 .remove_possibilities(&self.concrete_set.0)?;
-            println!("cell: {:?}", self.board.cell(pos));
             // make concrete changes
-            if let Some(val) = self.board.cell(pos).possible_is_concrete(pos) {
-                println!("make concrete {val:?}");
+            if let Some(val) = self.board.cell(pos).possible_is_concrete() {
                 self.concrete_set.insert(val)?;
                 new_concretes.insert(pos);
                 *self.board.mut_cell(pos) = self.board.cell(pos).make_concrete_cell(val)?;
@@ -147,24 +141,6 @@ mod test {
                 ],
                 board: &mut $board,
             }
-        };
-    }
-    macro_rules! update_cells {
-        ($row:expr => {$(
-            $columns:tt => $cell_values:tt
-        ),*}) => {
-            im::HashSet::new()
-                $(.union(
-                    im::HashSet::<(CellPos, CellVal)>::unions(
-                        pos!(iter $row, $columns).map(|pos| update_cells!(pos, $cell_values))
-                    )
-                ))*
-        };
-        ($pos:expr, { $( $cell_val:expr ),* }) => {
-            im::hashset![$( ($pos, cell_val!($cell_val)) ),*]
-        };
-        ($pos:expr, $cell_val:expr) => {
-            im::hashset![($pos, cell_val!($cell_val))]
         };
     }
     macro_rules! concrete_set {

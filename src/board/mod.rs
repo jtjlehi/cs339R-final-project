@@ -22,7 +22,6 @@ impl Index {
 }
 
 pub(crate) use cell::{Column, House, Row, ToSet};
-pub(crate) use cell_set::CellSet;
 
 #[derive(Error, Debug)]
 enum BuildError {
@@ -89,6 +88,16 @@ impl Board {
     pub(crate) fn possible_updates(self) -> impl Iterator<Item = Self> {
         CellPos::all_cell_pos().flat_map(move |pos| pos.make_concrete_boards(self.clone()))
     }
+    pub(crate) fn is_finished(&self) -> bool {
+        println!("is it finished?");
+        CellPos::all_cell_pos().all(|pos| match self.cell(pos) {
+            Cell::Concrete(_) => true,
+            Cell::Possibilities(set) => {
+                println!("no we found some possibilities at {pos:?}, {set:?}");
+                false
+            }
+        })
+    }
 }
 #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct CellPos {
@@ -110,7 +119,7 @@ impl CellPos {
     fn make_concrete_boards(self, board: Board) -> impl Iterator<Item = Board> {
         match board.cell(self) {
             Cell::Concrete(_) => HashSet::new(),
-            Cell::Possibilities(ref set) => set.clone(),
+            Cell::Possibilities(set) => set.clone(),
         }
         .into_iter()
         .map(move |num| {

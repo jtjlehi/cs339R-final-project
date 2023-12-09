@@ -1,5 +1,5 @@
 use anyhow::Result;
-use final_project::{Board, BoardState, UpdateError};
+use final_project::Board;
 use std::{env, fs, process};
 
 fn main() {
@@ -15,9 +15,8 @@ fn main() {
 }
 fn solve(lines: Vec<Vec<Option<u8>>>) -> Result<[[Option<usize>; 9]; 9]> {
     Ok(match Board::build(lines)?.solve() {
-        BoardState::Finished(board) => board.into(),
-        BoardState::Err(why) => Err(why)?,
-        _ => Err(UpdateError::Incomplete)?,
+        Ok(board) => board.into(),
+        Err(why) => Err(why)?,
     })
 }
 fn write_file(board: [[Option<usize>; 9]; 9]) -> Result<()> {

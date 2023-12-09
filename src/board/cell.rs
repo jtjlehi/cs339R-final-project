@@ -14,7 +14,7 @@ pub struct CellVal(usize);
 impl CellVal {
     /// an iterator over all possible cell values
     pub fn cell_vals() -> impl Iterator<Item = Self> {
-        (0..).map_while(|i| Self::new(i).ok())
+        (1..).map_while(|i| Self::new(i).ok())
     }
 }
 
@@ -80,8 +80,7 @@ impl Cell {
             &Concrete(val) => Concrete(val),
         })
     }
-    pub(super) fn possible_is_concrete(&self, pos: CellPos) -> Option<CellVal> {
-        println!("possible_is_concrete: {self:?}");
+    pub(super) fn possible_is_concrete(&self) -> Option<CellVal> {
         match self {
             Cell::Possibilities(set) if set.len() == 1 => set.clone().into_iter().next(),
             _ => None,
@@ -212,17 +211,17 @@ mod test {
     fn possible_is_concrete_gets_correct_val() {
         // possibilities
         let cell = cell!(? 1);
-        assert_eq!(cell.possible_is_concrete(pos!()), Some(cell_val!(1)))
+        assert_eq!(cell.possible_is_concrete(), Some(cell_val!(1)))
     }
     #[test]
     fn possible_is_concrete_returns_none_for_concrete() {
         let cell = cell!(3);
-        assert_eq!(cell.possible_is_concrete(pos!()), None);
+        assert_eq!(cell.possible_is_concrete(), None);
     }
     #[test]
     fn possible_is_concrete_returns_none_for_more_then_one() {
         let cell = cell!(? 3, 5);
-        assert_eq!(cell.possible_is_concrete(pos!()), None)
+        assert_eq!(cell.possible_is_concrete(), None)
     }
 
     // macro_rules! test_cell_list {
