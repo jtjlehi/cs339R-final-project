@@ -61,11 +61,29 @@ impl Cell {
             &Concrete(val) => Concrete(val),
         }
     }
-    pub(super) fn possible_is_concrete(&self, pos: CellPos) -> Option<(CellPos, CellVal)> {
-        match self {
-            Cell::Possibilities(set) if set.len() == 1 => {
-                set.into_iter().next().map(|&val| (pos, val))
+    pub(super) fn remove_possibilities(
+        &self,
+        vals: &HashSet<CellVal>,
+    ) -> Result<Self, UpdateError> {
+        use Cell::*;
+        Ok(match self {
+            Possibilities(set) if set.is_empty() => Err(UpdateError::Impossible)?,
+            // clone should be constant time
+            Possibilities(set) => {
+                let out = set.clone().relative_complement(vals.clone());
+                if out.is_empty() {
+                    Err(UpdateError::Impossible)?
+                } else {
+                    Possibilities(out)
+                }
             }
+            &Concrete(val) => Concrete(val),
+        })
+    }
+    pub(super) fn possible_is_concrete(&self, pos: CellPos) -> Option<CellVal> {
+        println!("possible_is_concrete: {self:?}");
+        match self {
+            Cell::Possibilities(set) if set.len() == 1 => set.clone().into_iter().next(),
             _ => None,
         }
     }
@@ -80,66 +98,42 @@ impl FromIterator<(CellPos, Cell)> for Board {
         board
     }
 }
-pub(super) trait CellAt {
-    fn cell_at(&self, index: Index) -> CellPos;
+pub(crate) trait ToSet {
+    fn cell_at(i: Index, j: Index) -> CellPos;
+    fn to_set(i: Index) -> im::HashSet<CellPos> {
+        Index::indexes()
+            .map(|j| Self::cell_at(i, j))
+            .collect::<im::HashSet<CellPos>>()
+    }
 }
 
-macro_rules! cell_list {
-    ($name:ident($single:ident, $many:ident) {$cell_at:item}) => {
-        #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-        pub(crate) struct $name<'b> {
-            index: Index,
-            board: &'b Board,
-        }
-        impl<'b> CellAt for $name<'b> {
-            $cell_at
-        }
-        impl Hash for $name<'_> {
-            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                self.index.hash(state);
-            }
-        }
-        impl Board {
-            pub(crate) fn $single(&self, index: Index) -> $name {
-                $name { index, board: self }
-            }
-            pub(crate) fn $many(&self) -> impl Iterator<Item = $name> {
-                Index::indexes().map(|index| self.$single(index))
-            }
-        }
-    };
+pub(crate) struct Row;
+impl ToSet for Row {
+    fn cell_at(i: Index, j: Index) -> CellPos {
+        CellPos { row: i, column: j }
+    }
 }
 
-cell_list!(Row(row, rows) {
-    fn cell_at(&self, index: Index) -> CellPos {
-        CellPos {
-            row: self.index,
-            column: index,
-        }
+pub(crate) struct Column;
+impl ToSet for Column {
+    fn cell_at(i: Index, j: Index) -> CellPos {
+        CellPos { column: i, row: j }
     }
-});
+}
 
-cell_list!(Column(column, columns) {
-    fn cell_at(&self, index: Index) -> CellPos {
-        CellPos {
-            column: self.index,
-            row: index,
-        }
-    }
-});
-
-cell_list!(House(house, houses) {
+pub(crate) struct House;
+impl ToSet for House {
     /// houses are ordered left to right top to bottom
     /// (so 4 is the center house)
-    fn cell_at(&self, index: Index) -> CellPos {
-        let house = self.index.into_inner();
-        let i = index.into_inner();
+    fn cell_at(i: Index, j: Index) -> CellPos {
+        let house = i.into_inner();
+        let j = j.into_inner();
         CellPos {
-            column: Index::new((house % 3) * 3 + (i % 3)).unwrap(),
-            row: Index::new((house / 3) * 3 + (i/ 3)).unwrap(),
+            column: Index::new((house % 3) * 3 + (j % 3)).unwrap(),
+            row: Index::new((house / 3) * 3 + (j / 3)).unwrap(),
         }
     }
-});
+}
 
 #[cfg(test)]
 pub(super) mod macros {
@@ -218,10 +212,7 @@ mod test {
     fn possible_is_concrete_gets_correct_val() {
         // possibilities
         let cell = cell!(? 1);
-        assert_eq!(
-            cell.possible_is_concrete(pos!()),
-            Some((pos!(), cell_val!(1)))
-        )
+        assert_eq!(cell.possible_is_concrete(pos!()), Some(cell_val!(1)))
     }
     #[test]
     fn possible_is_concrete_returns_none_for_concrete() {
@@ -234,43 +225,28 @@ mod test {
         assert_eq!(cell.possible_is_concrete(pos!()), None)
     }
 
-    macro_rules! test_cell_list {
-        ($test_name:ident => $name:ident($single:ident, $many:ident)) => {
-            #[test]
-            fn $test_name() {
-                let b = board!([]);
-                let single = b.$single(index!(1));
-                assert_eq!(
-                    single,
-                    $name {
-                        index: index!(1),
-                        board: &b
-                    }
-                );
-                let many: Vec<_> = b.$many().collect();
-                let expected: Vec<_> = (0..9)
-                    .map(|i| $name {
-                        index: index!(i),
-                        board: &b,
-                    })
-                    .collect();
-                assert_eq!(many, expected);
-            }
-        };
-    }
-    test_cell_list!(rows_works => Row(row, rows));
-    test_cell_list!(columns_works => Column(column, columns));
-    test_cell_list!(houses_works => House(house, houses));
-
+    // macro_rules! test_cell_list {
+    //     ($test_name:ident => $name:ident($single:ident)) => {
+    //         #[test]
+    //         fn $test_name() {
+    //             let b = board!([]);
+    //             let single = b.$single(index!(1));
+    //             assert_eq!(
+    //                 single,
+    //                 $name {
+    //                     index: index!(1),
+    //                     board: &b
+    //                 }
+    //             );
+    //         }
+    //     };
+    // }
+    // test_cell_list!(rows_works => Row(row));
+    // test_cell_list!(columns_works => Column(column));
+    // test_cell_list!(houses_works => House(house));
+    //
     #[test]
     fn house_cell_at_works() {
-        let board: Board = Default::default();
-
-        let house = House {
-            index: index!(3),
-            board: &board,
-        };
-
-        assert_eq!(house.cell_at(index!(5)), pos!(4, 2))
+        assert_eq!(House::cell_at(index!(3), index!(5)), pos!(4, 2))
     }
 }

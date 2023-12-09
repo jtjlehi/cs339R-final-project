@@ -10,4 +10,6 @@ pub enum UpdateError {
     InitError,
     #[error("didn't finish")]
     Incomplete,
+    #[error("no possibilities left")]
+    Impossible,
 }

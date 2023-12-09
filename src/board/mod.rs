@@ -14,13 +14,14 @@ use thiserror::Error;
     validate(less = 9),
     derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)
 )]
-struct Index(usize);
+pub(crate) struct Index(usize);
 impl Index {
     pub fn indexes() -> impl Iterator<Item = Self> {
         (0..).map_while(|i| Self::new(i).ok())
     }
 }
 
+pub(crate) use cell::{Column, House, Row, ToSet};
 pub(crate) use cell_set::CellSet;
 
 #[derive(Error, Debug)]
